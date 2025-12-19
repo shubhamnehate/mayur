@@ -1,0 +1,653 @@
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { CheckCircle2, Clock, Users, BookOpen, ArrowLeft, CreditCard, Building2, Mail, IndianRupee } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import Navigation from "@/components/Navigation";
+import Footer from "@/components/Footer";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { useState, useEffect } from "react";
+
+const coursesData: Record<string, any> = {
+  "ai-bootcamp": {
+    title: "AI Bootcamp",
+    subtitle: "ML → LLMs → Generative AI",
+    description: "Learn machine learning, deep learning, reinforcement learning, and generative AI for robotics and autonomous systems. Includes 5 recruiter-ready projects and portfolio deliverables.",
+    priceEUR: "€150",
+    priceINR: "₹15,000",
+    instructor: "Mayur Waghchoure",
+    duration: "12 weeks",
+    level: "Intermediate",
+    learningOutcomes: [
+      "Master machine learning fundamentals and algorithms",
+      "Build deep learning models for computer vision and NLP",
+      "Implement reinforcement learning for robotics control",
+      "Create generative AI applications using LLMs",
+      "Develop 5 portfolio-ready projects",
+      "Learn industry best practices for ML deployment"
+    ],
+    projects: [
+      "Image Classification with CNNs",
+      "Natural Language Processing with Transformers",
+      "Reinforcement Learning for Robot Navigation",
+      "Generative AI Content Creation",
+      "End-to-End ML Pipeline Deployment"
+    ],
+    topics: [
+      "Machine Learning Fundamentals",
+      "Deep Learning & Neural Networks",
+      "Computer Vision with CNNs",
+      "Natural Language Processing",
+      "Reinforcement Learning",
+      "Large Language Models (LLMs)",
+      "Generative AI & Transformers",
+      "ML Operations & Deployment"
+    ]
+  },
+  "adas-bootcamp": {
+    title: "ADAS & Autonomous Driving Bootcamp",
+    subtitle: "",
+    description: "Learn system design, safety (ISO 26262/SOTIF), simulation, and validation for advanced driver assistance systems. Includes lane keeping, fusion, and real-world testing workflows.",
+    priceEUR: "€249",
+    priceINR: "₹24,999",
+    instructor: "Mayur Waghchoure",
+    duration: "16 weeks",
+    level: "Advanced",
+    learningOutcomes: [
+      "Design complete ADAS systems from scratch",
+      "Master ISO 26262 and SOTIF safety standards",
+      "Implement sensor fusion algorithms",
+      "Build lane keeping and adaptive cruise control",
+      "Create simulation and validation pipelines",
+      "Understand real-world testing procedures"
+    ],
+    projects: [
+      "Lane Keeping Assist System",
+      "Adaptive Cruise Control (ACC)",
+      "Sensor Fusion Pipeline",
+      "Simulation Environment Setup",
+      "Safety Validation Framework"
+    ],
+    topics: [
+      "ADAS System Architecture",
+      "ISO 26262 Functional Safety",
+      "SOTIF Safety Framework",
+      "Sensor Fusion (Camera, Radar, Lidar)",
+      "Lane Detection & Tracking",
+      "Adaptive Cruise Control",
+      "Simulation Tools (CARLA, MATLAB)",
+      "Validation & Testing Workflows"
+    ]
+  },
+  "controls-bootcamp": {
+    title: "Modern Vehicle Control Bootcamp",
+    subtitle: "PID → LQR → MPC",
+    description: "Master modern vehicle control techniques for autonomous driving. Learn Linear, Stochastic, and Optimal Control and apply them in real projects like ACC, ESC, and MPC-based trajectory tracking.",
+    priceEUR: "€99",
+    priceINR: "₹9,999",
+    instructor: "Mayur Waghchoure",
+    duration: "10 weeks",
+    level: "Intermediate",
+    learningOutcomes: [
+      "Understand classical and modern control theory",
+      "Implement PID controllers for vehicle systems",
+      "Master Linear Quadratic Regulator (LQR)",
+      "Design Model Predictive Controllers (MPC)",
+      "Apply controls to autonomous driving scenarios",
+      "Build trajectory tracking systems"
+    ],
+    projects: [
+      "PID-based Speed Control",
+      "LQR for Lateral Control",
+      "MPC Trajectory Tracking",
+      "Adaptive Cruise Control",
+      "Electronic Stability Control"
+    ],
+    topics: [
+      "Control Systems Fundamentals",
+      "PID Controller Design & Tuning",
+      "State-Space Representation",
+      "Linear Quadratic Regulator (LQR)",
+      "Model Predictive Control (MPC)",
+      "Vehicle Dynamics Modeling",
+      "Trajectory Tracking",
+      "Adaptive & Robust Control"
+    ]
+  },
+  "motion-planning-bootcamp": {
+    title: "Motion Prediction & Planning Bootcamp",
+    subtitle: "Autonomous Driving",
+    description: "Learn how self-driving cars forecast future trajectories and plan safe motion using A*, Frenet/Lattice planners, MPC, and risk-aware decision making (MPDM). Includes 3 hands-on projects + free guest lecture.",
+    priceEUR: "€99",
+    priceINR: "₹9,999",
+    instructor: "Adityaveer Raswan",
+    duration: "10 weeks",
+    level: "Advanced",
+    learningOutcomes: [
+      "Predict future trajectories of surrounding vehicles",
+      "Implement A* and hybrid A* path planning",
+      "Design Frenet and Lattice-based planners",
+      "Build MPC-based trajectory optimization",
+      "Apply risk-aware decision making (MPDM)",
+      "Integrate planning with perception systems"
+    ],
+    projects: [
+      "Trajectory Prediction System",
+      "A* Path Planner Implementation",
+      "Frenet/Lattice Motion Planner",
+      "MPC Trajectory Optimizer",
+      "Risk-Aware Decision Making System"
+    ],
+    topics: [
+      "Motion Prediction Algorithms",
+      "Path Planning (A*, Hybrid A*)",
+      "Frenet Frame Planning",
+      "Lattice-based Planners",
+      "Model Predictive Control for Planning",
+      "Multi-Policy Decision Making (MPDM)",
+      "Collision Avoidance",
+      "Real-time Planning Optimization"
+    ],
+    guestLecture: {
+      speaker: "Darsh Patel",
+      title: "ISO 26262 / SOTIF Functional Safety",
+      description: "Free guest lecture on automotive functional safety for autonomous systems"
+    }
+  },
+  "cicd-bootcamp": {
+    title: "CI/CD for Autonomous Systems",
+    subtitle: "Jenkins · Docker · Kubernetes",
+    description: "Learn to automate builds, tests, and deployments for AI and Control projects using GitHub, Jenkins, Docker, and Kubernetes. Build a full DevOps pipeline and deploy a live app to Kubernetes.",
+    priceEUR: "€49",
+    priceINR: "₹4,999",
+    instructor: "Mayur Waghchoure",
+    duration: "6 weeks",
+    level: "Beginner",
+    learningOutcomes: [
+      "Set up complete CI/CD pipelines",
+      "Master Docker containerization",
+      "Deploy applications to Kubernetes",
+      "Automate testing and quality checks",
+      "Implement continuous integration with Jenkins",
+      "Build production-ready DevOps workflows"
+    ],
+    projects: [
+      "Dockerize an AI Application",
+      "Jenkins CI Pipeline Setup",
+      "Kubernetes Deployment",
+      "Automated Testing Framework",
+      "End-to-End DevOps Pipeline"
+    ],
+    topics: [
+      "Version Control with Git & GitHub",
+      "Continuous Integration with Jenkins",
+      "Docker Fundamentals & Best Practices",
+      "Container Orchestration with Kubernetes",
+      "Automated Testing & Quality Gates",
+      "Deployment Strategies",
+      "Monitoring & Logging",
+      "Production DevOps Workflows"
+    ]
+  },
+  "data-science-bootcamp": {
+    title: "Data Science Concept Bootcamp",
+    subtitle: "",
+    description: "Learn the foundations of causal inference, predictive modeling, experimentation, and GenAI data pipelines. Build analytical projects ready for portfolio review.",
+    priceEUR: "€50",
+    priceINR: "₹5,000",
+    instructor: "Mayur Waghchoure",
+    duration: "8 weeks",
+    level: "Beginner",
+    learningOutcomes: [
+      "Understand causal inference fundamentals",
+      "Build predictive modeling pipelines",
+      "Design and analyze experiments",
+      "Create GenAI data processing pipelines",
+      "Develop analytical thinking skills",
+      "Build portfolio-ready projects"
+    ],
+    projects: [
+      "Causal Analysis Project",
+      "Predictive Modeling Pipeline",
+      "A/B Testing Framework",
+      "GenAI Data Pipeline",
+      "End-to-End Analytics Solution"
+    ],
+    topics: [
+      "Data Science Fundamentals",
+      "Causal Inference Methods",
+      "Predictive Modeling Techniques",
+      "Experimental Design & A/B Testing",
+      "Statistical Analysis",
+      "GenAI Data Pipelines",
+      "Data Visualization",
+      "Analytics Best Practices"
+    ]
+  }
+};
+
+const CourseDetail = () => {
+  const { courseId } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [enrolling, setEnrolling] = useState(false);
+  const [dbCourse, setDbCourse] = useState<any>(null);
+  const course = courseId ? coursesData[courseId] : null;
+
+  // Fetch course from database for Stripe links
+  useEffect(() => {
+    const fetchDbCourse = async () => {
+      if (!courseId) return;
+      const { data } = await supabase
+        .from('courses')
+        .select('id, stripe_payment_link_eur, stripe_payment_link_inr')
+        .eq('slug', courseId)
+        .single();
+      if (data) setDbCourse(data);
+    };
+    fetchDbCourse();
+  }, [courseId]);
+
+  const handleEnroll = async (paymentMethod: 'stripe_eur' | 'stripe_inr' | 'bank_transfer') => {
+    if (!user) {
+      toast({
+        title: "Please sign in",
+        description: "You need to be signed in to enroll in a course.",
+        variant: "destructive"
+      });
+      navigate("/auth");
+      return;
+    }
+
+    setEnrolling(true);
+    try {
+      // First, get the course ID from the database
+      const { data: courseData, error: courseError } = await supabase
+        .from('courses')
+        .select('id')
+        .eq('slug', courseId)
+        .single();
+
+      if (courseError || !courseData) {
+        // Course might not exist in DB yet - show contact info
+        toast({
+          title: "Contact for Enrollment",
+          description: "Please contact us at cloudbee.robotics@gmail.com to complete your enrollment.",
+        });
+        return;
+      }
+
+      // Create enrollment record
+      const { error: enrollError } = await supabase
+        .from('enrollments')
+        .insert({
+          user_id: user.id,
+          course_id: courseData.id,
+          payment_method: paymentMethod,
+          payment_status: 'pending'
+        });
+
+      if (enrollError) {
+        if (enrollError.code === '23505') {
+          toast({
+            title: "Already Enrolled",
+            description: "You are already enrolled in this course.",
+          });
+        } else {
+          throw enrollError;
+        }
+        return;
+      }
+
+      // Handle Stripe payments
+      if (paymentMethod === 'stripe_eur' && dbCourse?.stripe_payment_link_eur) {
+        toast({
+          title: "Redirecting to Payment",
+          description: "You will be redirected to complete your payment.",
+        });
+        window.open(dbCourse.stripe_payment_link_eur, '_blank');
+        return;
+      } else if (paymentMethod === 'stripe_inr' && dbCourse?.stripe_payment_link_inr) {
+        toast({
+          title: "Redirecting to Payment",
+          description: "You will be redirected to complete your payment.",
+        });
+        window.open(dbCourse.stripe_payment_link_inr, '_blank');
+        return;
+      } else if (paymentMethod !== 'bank_transfer') {
+        toast({
+          title: "Payment Link Not Available",
+          description: "Please use bank transfer or contact us at cloudbee.robotics@gmail.com",
+        });
+        return;
+      }
+
+      toast({
+        title: "Enrollment Request Submitted",
+        description: "Bank details have been sent to your email. Your access will be activated within 24 hours of payment confirmation.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Enrollment Failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
+  if (!course) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Navigation />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <h1 className="text-4xl font-bold mb-4">Course Not Found</h1>
+            <Link to="/courses">
+              <Button>Back to Courses</Button>
+            </Link>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Navigation />
+      
+      <main className="flex-1">
+        {/* Hero Section */}
+        <section className="py-12 px-4 gradient-hero">
+          <div className="container mx-auto max-w-6xl">
+            <Link to="/courses" className="inline-flex items-center text-sm text-muted-foreground hover:text-primary mb-6 transition-colors">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Courses
+            </Link>
+            
+            <div className="grid lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-2">
+                <Badge className="mb-4">{course.level}</Badge>
+                <h1 className="text-4xl md:text-5xl font-bold mb-4">
+                  {course.title}
+                </h1>
+                {course.subtitle && (
+                  <p className="text-2xl text-secondary font-semibold mb-4">
+                    {course.subtitle}
+                  </p>
+                )}
+                <p className="text-lg text-muted-foreground mb-6">
+                  {course.description}
+                </p>
+                
+                <div className="flex flex-wrap gap-6 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-primary" />
+                    <span><span className="font-medium">Instructor:</span> {course.instructor}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-primary" />
+                    <span><span className="font-medium">Duration:</span> {course.duration}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-primary" />
+                    <span><span className="font-medium">Level:</span> {course.level}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-1">
+                <Card className="shadow-glow sticky top-24">
+                  <CardHeader>
+                    <CardTitle className="text-center">
+                      <div className="text-4xl font-bold text-primary mb-2">
+                        {course.priceEUR}
+                      </div>
+                      <div className="text-2xl text-muted-foreground">
+                        {course.priceINR}
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button className="w-full gradient-primary text-lg py-6" disabled={enrolling}>
+                          {enrolling ? "Processing..." : "Enroll Now"}
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-lg bg-background">
+                        <DialogHeader>
+                          <DialogTitle>Choose Payment Method</DialogTitle>
+                          <DialogDescription>
+                            Select your preferred payment method to enroll in {course.title}
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 mt-4">
+                          {/* International Stripe Payments (EUR) */}
+                          <Card className={`p-4 ${dbCourse?.stripe_payment_link_eur ? 'cursor-pointer hover:border-primary' : 'opacity-60'} transition-colors`}>
+                            <div className="flex items-start gap-3">
+                              <CreditCard className="w-6 h-6 text-primary mt-1" />
+                              <div className="flex-1">
+                                <h4 className="font-semibold flex items-center gap-2">
+                                  Pay with Card (International)
+                                  {!dbCourse?.stripe_payment_link_eur && (
+                                    <Badge variant="secondary" className="text-xs">Coming Soon</Badge>
+                                  )}
+                                </h4>
+                                <p className="text-sm text-muted-foreground">{course.priceEUR} - Secure payment via Stripe</p>
+                                <p className="text-xs text-muted-foreground mt-1">Credit/Debit cards, Apple Pay, Google Pay</p>
+                                {dbCourse?.stripe_payment_link_eur && (
+                                  <Button 
+                                    className="w-full mt-3 gradient-primary" 
+                                    onClick={() => handleEnroll('stripe_eur')}
+                                    disabled={enrolling}
+                                  >
+                                    Pay {course.priceEUR}
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </Card>
+
+                          {/* Indian Stripe Payments (INR) */}
+                          <Card className={`p-4 ${dbCourse?.stripe_payment_link_inr ? 'cursor-pointer hover:border-primary' : ''} transition-colors`}>
+                            <div className="flex items-start gap-3">
+                              <IndianRupee className="w-6 h-6 text-primary mt-1" />
+                              <div className="flex-1">
+                                <h4 className="font-semibold">Pay with Card (India)</h4>
+                                <p className="text-sm text-muted-foreground">{course.priceINR} - Secure payment via Stripe</p>
+                                {dbCourse?.stripe_payment_link_inr ? (
+                                  <Button 
+                                    className="w-full mt-3 gradient-primary" 
+                                    onClick={() => handleEnroll('stripe_inr')}
+                                    disabled={enrolling}
+                                  >
+                                    Pay {course.priceINR}
+                                  </Button>
+                                ) : (
+                                  <Badge variant="secondary" className="text-xs mt-2">Coming Soon</Badge>
+                                )}
+                              </div>
+                            </div>
+                          </Card>
+
+                          {/* Bank Transfer (India) */}
+                          <Card className="p-4 cursor-pointer hover:border-primary transition-colors">
+                            <div className="flex items-start gap-3">
+                              <Building2 className="w-6 h-6 text-primary mt-1" />
+                              <div className="flex-1">
+                                <h4 className="font-semibold">Bank Transfer (India)</h4>
+                                <p className="text-sm text-muted-foreground mb-3">{course.priceINR} - UPI or NEFT/IMPS</p>
+                                <p className="text-xs text-muted-foreground mb-3">
+                                  Click below to request enrollment. Bank details will be sent securely to your registered email.
+                                </p>
+                                <Button 
+                                  className="w-full" 
+                                  variant="outline"
+                                  onClick={() => handleEnroll('bank_transfer')}
+                                  disabled={enrolling}
+                                >
+                                  Request Enrollment
+                                </Button>
+                              </div>
+                            </div>
+                          </Card>
+
+                          {/* Contact */}
+                          <Card className="p-4 bg-muted/30">
+                            <div className="flex items-start gap-3">
+                              <Mail className="w-6 h-6 text-primary mt-1" />
+                              <div>
+                                <h4 className="font-semibold">Need Help?</h4>
+                                <p className="text-sm text-muted-foreground">Contact us for payment assistance</p>
+                                <a 
+                                  href="mailto:cloudbee.robotics@gmail.com" 
+                                  className="text-sm text-primary hover:underline"
+                                >
+                                  cloudbee.robotics@gmail.com
+                                </a>
+                              </div>
+                            </div>
+                          </Card>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                    
+                    <a href="mailto:cloudbee.robotics@gmail.com">
+                      <Button variant="outline" className="w-full">
+                        Contact for Details
+                      </Button>
+                    </a>
+                    <p className="text-xs text-center text-muted-foreground">
+                      Access to Google Classroom upon enrollment
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Course Content */}
+        <section className="py-20 px-4">
+          <div className="container mx-auto max-w-6xl">
+            <div className="grid lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-2 space-y-12">
+                {/* Learning Outcomes */}
+                <div>
+                  <h2 className="text-3xl font-bold mb-6">What You'll Learn</h2>
+                  <div className="grid gap-4">
+                    {course.learningOutcomes.map((outcome: string, index: number) => (
+                      <div key={index} className="flex items-start gap-3">
+                        <CheckCircle2 className="w-6 h-6 text-accent flex-shrink-0 mt-1" />
+                        <span className="text-muted-foreground">{outcome}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Topics Covered */}
+                <div>
+                  <h2 className="text-3xl font-bold mb-6">Topics Covered</h2>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    {course.topics.map((topic: string, index: number) => (
+                      <Card key={index} className="p-4">
+                        <p className="font-medium">{topic}</p>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Projects */}
+                <div>
+                  <h2 className="text-3xl font-bold mb-6">Hands-On Projects</h2>
+                  <div className="space-y-3">
+                    {course.projects.map((project: string, index: number) => (
+                      <Card key={index} className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
+                            {index + 1}
+                          </div>
+                          <span className="font-medium">{project}</span>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Guest Lecture (if applicable) */}
+                {course.guestLecture && (
+                  <div>
+                    <Card className="bg-accent/5 border-accent">
+                      <CardHeader>
+                        <CardTitle>🎁 Bonus: Free Guest Lecture</CardTitle>
+                        <CardDescription className="text-base">
+                          <div className="font-semibold text-foreground mt-2">
+                            {course.guestLecture.title}
+                          </div>
+                          <div className="text-sm mt-1">
+                            by {course.guestLecture.speaker}
+                          </div>
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-muted-foreground">
+                          {course.guestLecture.description}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+              </div>
+
+              {/* Sidebar */}
+              <div className="lg:col-span-1">
+                <Card className="sticky top-24">
+                  <CardHeader>
+                    <CardTitle>Course Includes</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0 mt-1" />
+                      <span className="text-sm">Lifetime access to course materials</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0 mt-1" />
+                      <span className="text-sm">Access to Google Classroom</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0 mt-1" />
+                      <span className="text-sm">Downloadable resources & lecture recordings</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0 mt-1" />
+                      <span className="text-sm">Portfolio-ready projects</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0 mt-1" />
+                      <span className="text-sm">Certificate of completion</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0 mt-1" />
+                      <span className="text-sm">Direct instructor support</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <Footer />
+    </div>
+  );
+};
+
+export default CourseDetail;
