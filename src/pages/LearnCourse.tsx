@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import Navigation from '@/components/Navigation';
 import VideoPlayer from '@/components/learn/VideoPlayer';
 import LessonSidebar from '@/components/learn/LessonSidebar';
@@ -10,43 +9,21 @@ import QuizComponent from '@/components/learn/QuizComponent';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, ChevronRight, Menu, X } from 'lucide-react';
+import { Chapter as CourseChapter, Course, Lesson as CourseLesson } from '@/api/courses';
+import { fetchLearningContent, markLessonComplete, Quiz as CourseQuiz } from '@/api/classwork';
 
-interface Chapter {
-  id: string;
-  title: string;
-  description: string | null;
-  order_index: number;
-  lessons: Lesson[];
-  quiz?: Quiz | null;
-}
-
-interface Lesson {
-  id: string;
-  title: string;
-  description: string | null;
-  video_url: string | null;
-  notes_content: string | null;
-  colab_notebook_url: string | null;
-  order_index: number;
-  completed: boolean;
-}
-
-interface Quiz {
-  id: string;
-  title: string;
-  description: string | null;
-  passing_score: number;
-}
+type LessonWithProgress = CourseLesson & { completed: boolean };
+type ChapterWithQuiz = CourseChapter & { lessons: LessonWithProgress[]; quiz?: CourseQuiz | null };
 
 const LearnCourse = () => {
   const { courseSlug } = useParams();
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   
-  const [course, setCourse] = useState<any>(null);
-  const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
-  const [currentQuiz, setCurrentQuiz] = useState<Quiz | null>(null);
+  const [course, setCourse] = useState<Course | null>(null);
+  const [chapters, setChapters] = useState<ChapterWithQuiz[]>([]);
+  const [currentLesson, setCurrentLesson] = useState<LessonWithProgress | null>(null);
+  const [currentQuiz, setCurrentQuiz] = useState<CourseQuiz | null>(null);
   const [showQuiz, setShowQuiz] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loadingContent, setLoadingContent] = useState(true);
@@ -61,105 +38,54 @@ const LearnCourse = () => {
     const fetchCourseContent = async () => {
       if (!user || !courseSlug) return;
 
-      // Fetch course
-      const { data: courseData, error: courseError } = await supabase
-        .from('courses')
-        .select('*')
-        .eq('slug', courseSlug)
-        .single();
+      try {
+        const content = await fetchLearningContent(courseSlug);
 
-      if (courseError || !courseData) {
-        console.error('Course not found');
+        if (!content.enrolled) {
+          navigate('/dashboard');
+          return;
+        }
+
+        const chaptersWithQuiz = (content.chapters || []).map((chapter: CourseChapter) => ({
+          ...chapter,
+          lessons: chapter.lessons.map((lesson: CourseLesson) => ({
+            ...lesson,
+            completed: lesson.completed ?? false,
+          })) as LessonWithProgress[],
+          quiz: chapter.quizId
+            ? {
+                id: chapter.quizId,
+                title: chapter.quizTitle || 'Chapter Quiz',
+                passingScore: chapter.passingScore ?? 70,
+              }
+            : null,
+        })) as ChapterWithQuiz[];
+
+        setCourse(content.course);
+        setChapters(chaptersWithQuiz);
+        
+        if (chaptersWithQuiz.length > 0 && chaptersWithQuiz[0].lessons.length > 0) {
+          setCurrentLesson(chaptersWithQuiz[0].lessons[0]);
+        }
+        
+        setLoadingContent(false);
+      } catch (error) {
+        console.error('Error loading course content', error);
         navigate('/dashboard');
-        return;
+        setLoadingContent(false);
       }
-
-      setCourse(courseData);
-
-      // Verify enrollment
-      const { data: enrollment } = await supabase
-        .from('enrollments')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('course_id', courseData.id)
-        .eq('payment_status', 'completed')
-        .single();
-
-      if (!enrollment) {
-        navigate('/dashboard');
-        return;
-      }
-
-      // Fetch chapters with lessons
-      const { data: chaptersData } = await supabase
-        .from('course_chapters')
-        .select('*')
-        .eq('course_id', courseData.id)
-        .order('order_index');
-
-      if (!chaptersData) return;
-
-      // Fetch lessons and progress for each chapter
-      const chaptersWithLessons = await Promise.all(
-        chaptersData.map(async (chapter) => {
-          const { data: lessons } = await supabase
-            .from('lessons')
-            .select('*')
-            .eq('chapter_id', chapter.id)
-            .order('order_index');
-
-          // Fetch progress for each lesson
-          const lessonsWithProgress = await Promise.all(
-            (lessons || []).map(async (lesson) => {
-              const { data: progress } = await supabase
-                .from('lesson_progress')
-                .select('completed')
-                .eq('user_id', user.id)
-                .eq('lesson_id', lesson.id)
-                .single();
-
-              return {
-                ...lesson,
-                completed: progress?.completed || false,
-              };
-            })
-          );
-
-          // Fetch quiz for chapter
-          const { data: quiz } = await supabase
-            .from('quizzes')
-            .select('*')
-            .eq('chapter_id', chapter.id)
-            .single();
-
-          return {
-            ...chapter,
-            lessons: lessonsWithProgress,
-            quiz,
-          };
-        })
-      );
-
-      setChapters(chaptersWithLessons);
-      
-      // Set first lesson as current
-      if (chaptersWithLessons.length > 0 && chaptersWithLessons[0].lessons.length > 0) {
-        setCurrentLesson(chaptersWithLessons[0].lessons[0]);
-      }
-      
-      setLoadingContent(false);
     };
 
     fetchCourseContent();
   }, [user, courseSlug, navigate]);
 
-  const handleLessonSelect = (lesson: Lesson) => {
+  const handleLessonSelect = (lesson: LessonWithProgress) => {
     setCurrentLesson(lesson);
     setShowQuiz(false);
     setCurrentQuiz(null);
   };
 
-  const handleQuizSelect = (quiz: Quiz) => {
+  const handleQuizSelect = (quiz: CourseQuiz) => {
     setCurrentQuiz(quiz);
     setShowQuiz(true);
     setCurrentLesson(null);
@@ -168,16 +94,7 @@ const LearnCourse = () => {
   const handleLessonComplete = async () => {
     if (!currentLesson || !user) return;
 
-    await supabase
-      .from('lesson_progress')
-      .upsert({
-        user_id: user.id,
-        lesson_id: currentLesson.id,
-        completed: true,
-        completed_at: new Date().toISOString(),
-      }, {
-        onConflict: 'user_id,lesson_id',
-      });
+    await markLessonComplete(currentLesson.id);
 
     // Update local state
     setChapters(prev => prev.map(chapter => ({
@@ -256,15 +173,15 @@ const LearnCourse = () => {
             <QuizComponent
               quizId={currentQuiz.id}
               title={currentQuiz.title}
-              passingScore={currentQuiz.passing_score}
+              passingScore={currentQuiz.passingScore}
               onComplete={() => setShowQuiz(false)}
             />
           ) : currentLesson ? (
             <div className="max-w-4xl mx-auto p-6 space-y-6">
               {/* Video Player */}
-              {currentLesson.video_url && (
+              {currentLesson.videoUrl && (
                 <VideoPlayer
-                  videoUrl={currentLesson.video_url}
+                  videoUrl={currentLesson.videoUrl || ''}
                   lessonId={currentLesson.id}
                 />
               )}
@@ -273,8 +190,8 @@ const LearnCourse = () => {
               <LessonContent
                 title={currentLesson.title}
                 description={currentLesson.description}
-                notesContent={currentLesson.notes_content}
-                colabUrl={currentLesson.colab_notebook_url}
+                notesContent={currentLesson.notesContent}
+                colabUrl={currentLesson.colabNotebookUrl}
               />
 
               {/* Navigation */}

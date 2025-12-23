@@ -1,34 +1,11 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Award, Download, Clock, CheckCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-
-interface Certificate {
-  id: string;
-  course_id: string;
-  status: string;
-  certificate_number: string | null;
-  issued_at: string | null;
-  created_at: string;
-  course: {
-    title: string;
-    slug: string;
-  };
-}
-
-interface CourseCompletion {
-  courseId: string;
-  courseTitle: string;
-  courseSlug: string;
-  completedLessons: number;
-  totalLessons: number;
-  isComplete: boolean;
-  hasCertificate: boolean;
-}
+import { Certificate, CourseCompletion, fetchCertificatesOverview, requestCertificate } from '@/api/classwork';
 
 const CertificatesSection = () => {
   const { user } = useAuth();
@@ -39,99 +16,18 @@ const CertificatesSection = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!user) return;
-
-      // Fetch certificates
-      const { data: rawCerts } = await supabase
-        .from('certificates')
-        .select('*')
-        .eq('user_id', user.id);
-
-      // Enrich certificates with course data
-      const certs = await Promise.all(
-        (rawCerts || []).map(async (cert) => {
-          const { data: course } = await supabase
-            .from('courses')
-            .select('title, slug')
-            .eq('id', cert.course_id)
-            .maybeSingle();
-
-          return {
-            ...cert,
-            course: course || { title: 'Unknown', slug: '' },
-          };
-        })
-      );
-
-      setCertificates(certs as Certificate[]);
-
-      // Fetch enrolled courses and progress
-      const { data: enrollments } = await supabase
-        .from('enrollments')
-        .select(`
-          course_id,
-          course:courses (id, title, slug)
-        `)
-        .eq('user_id', user.id)
-        .eq('payment_status', 'completed');
-
-      if (enrollments) {
-        const completionData = await Promise.all(
-          enrollments.map(async (enrollment: any) => {
-            const { data: chapters } = await supabase
-              .from('course_chapters')
-              .select('id')
-              .eq('course_id', enrollment.course_id);
-
-            if (!chapters || chapters.length === 0) {
-              return {
-                courseId: enrollment.course_id,
-                courseTitle: enrollment.course.title,
-                courseSlug: enrollment.course.slug,
-                completedLessons: 0,
-                totalLessons: 0,
-                isComplete: false,
-                hasCertificate: certs?.some(c => c.course_id === enrollment.course_id) || false,
-              };
-            }
-
-            const chapterIds = chapters.map(c => c.id);
-
-            const { count: totalLessons } = await supabase
-              .from('lessons')
-              .select('*', { count: 'exact', head: true })
-              .in('chapter_id', chapterIds);
-
-            const { data: lessonIds } = await supabase
-              .from('lessons')
-              .select('id')
-              .in('chapter_id', chapterIds);
-
-            const { count: completedLessons } = await supabase
-              .from('lesson_progress')
-              .select('*', { count: 'exact', head: true })
-              .eq('user_id', user.id)
-              .eq('completed', true)
-              .in('lesson_id', lessonIds?.map(l => l.id) || []);
-
-            const isComplete = totalLessons ? (completedLessons || 0) >= totalLessons : false;
-
-            return {
-              courseId: enrollment.course_id,
-              courseTitle: enrollment.course.title,
-              courseSlug: enrollment.course.slug,
-              completedLessons: completedLessons || 0,
-              totalLessons: totalLessons || 0,
-              isComplete,
-              hasCertificate: certs?.some(c => c.course_id === enrollment.course_id) || false,
-            };
-          })
-        );
-
-        setCompletions(completionData);
+      if (!user) {
+        setLoading(false);
+        return;
       }
 
-      setLoading(false);
+      try {
+        const data = await fetchCertificatesOverview();
+        setCertificates(data.certificates);
+        setCompletions(data.completions);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchData();
@@ -142,55 +38,22 @@ const CertificatesSection = () => {
     setRequesting(courseId);
 
     try {
-      const { error } = await supabase
-        .from('certificates')
-        .insert({
-          user_id: user.id,
-          course_id: courseId,
-          status: 'pending',
-        });
-
-      if (error) {
-        if (error.code === '23505') {
-          toast({
-            title: 'Certificate already requested',
-            description: 'You have already requested a certificate for this course.',
-          });
-        } else {
-          throw error;
-        }
-        return;
-      }
+      const certificate = await requestCertificate(courseId);
 
       toast({
         title: 'Certificate requested',
         description: 'Your certificate request is pending instructor approval.',
       });
 
-      // Refresh certificates
-      const { data: certs } = await supabase
-        .from('certificates')
-        .select(`
-          id,
-          course_id,
-          status,
-          certificate_number,
-          issued_at,
-          created_at,
-          course:courses (title, slug)
-        `)
-        .eq('user_id', user.id);
-
-      if (certs) {
-        setCertificates(certs as unknown as Certificate[]);
-        setCompletions(prev => prev.map(c => 
-          c.courseId === courseId ? { ...c, hasCertificate: true } : c
-        ));
-      }
-    } catch (error: any) {
+      setCertificates(prev => [...prev, certificate]);
+      setCompletions(prev => prev.map(c => 
+        c.courseId === courseId ? { ...c, hasCertificate: true } : c
+      ));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to request certificate';
       toast({
         title: 'Error',
-        description: error.message,
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -205,10 +68,10 @@ CERTIFICATE OF COMPLETION
 
 This certifies that the holder has successfully completed
 
-${cert.course.title}
+${cert.course?.title}
 
-Certificate Number: ${cert.certificate_number}
-Issue Date: ${new Date(cert.issued_at!).toLocaleDateString()}
+Certificate Number: ${cert.certificateNumber}
+Issue Date: ${cert.issuedAt ? new Date(cert.issuedAt).toLocaleDateString() : 'Pending'}
 
 CloudBee Robotics Academy
     `.trim();
@@ -217,7 +80,7 @@ CloudBee Robotics Academy
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `certificate-${cert.certificate_number}.txt`;
+    a.download = `certificate-${cert.certificateNumber ?? 'pending'}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -275,7 +138,7 @@ CloudBee Robotics Academy
             <Card key={cert.id} className="border-border/50">
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
-                  <CardTitle className="text-lg">{cert.course.title}</CardTitle>
+                  <CardTitle className="text-lg">{cert.course?.title}</CardTitle>
                   <Badge variant={cert.status === 'approved' ? 'default' : 'secondary'}>
                     {cert.status === 'approved' ? 'Issued' : cert.status}
                   </Badge>
@@ -285,8 +148,8 @@ CloudBee Robotics Academy
                 {cert.status === 'approved' ? (
                   <>
                     <div className="text-sm text-muted-foreground">
-                      <p>Certificate #: {cert.certificate_number}</p>
-                      <p>Issued: {new Date(cert.issued_at!).toLocaleDateString()}</p>
+                      <p>Certificate #: {cert.certificateNumber}</p>
+                      <p>Issued: {cert.issuedAt ? new Date(cert.issuedAt).toLocaleDateString() : '-'}</p>
                     </div>
                     <Button
                       variant="outline"

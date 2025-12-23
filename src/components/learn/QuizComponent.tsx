@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -9,23 +7,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { CheckCircle, XCircle, Trophy, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-interface QuizQuestion {
-  id: string;
-  question_text: string;
-  options: string[];
-  points: number;
-}
-
-interface QuizResult {
-  questionId: string;
-  questionText: string;
-  userAnswer: string;
-  correctAnswer: string;
-  explanation: string | null;
-  isCorrect: boolean;
-  points: number;
-}
+import { fetchQuizQuestions, submitQuizAttempt, QuizQuestion, QuizResult } from '@/api/classwork';
 
 interface QuizComponentProps {
   quizId: string;
@@ -35,7 +17,6 @@ interface QuizComponentProps {
 }
 
 const QuizComponent = ({ quizId, title, passingScore, onComplete }: QuizComponentProps) => {
-  const { user } = useAuth();
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -47,26 +28,12 @@ const QuizComponent = ({ quizId, title, passingScore, onComplete }: QuizComponen
 
   useEffect(() => {
     const fetchQuestions = async () => {
-      // Use secure function to get questions WITHOUT correct answers
-      const { data, error } = await supabase
-        .rpc('get_quiz_questions_for_student', { p_quiz_id: quizId });
-
-      if (error) {
-        console.error('Error fetching questions:', error);
+      try {
+        const data = await fetchQuizQuestions(quizId);
+        setQuestions(data);
+      } finally {
         setLoading(false);
-        return;
       }
-
-      // Parse options from JSONB
-      const parsedQuestions = (data || []).map((q: any) => ({
-        id: q.id,
-        question_text: q.question_text,
-        options: Array.isArray(q.options) ? q.options : JSON.parse(q.options as string),
-        points: q.points || 1,
-      }));
-
-      setQuestions(parsedQuestions);
-      setLoading(false);
     };
 
     fetchQuestions();
@@ -96,77 +63,34 @@ const QuizComponent = ({ quizId, title, passingScore, onComplete }: QuizComponen
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    
-    // Check each answer using secure function
-    const quizResults: QuizResult[] = [];
-    let totalScore = 0;
-    let maxScore = 0;
 
-    for (const q of questions) {
-      maxScore += q.points;
-      const userAnswer = answers[q.id] || '';
-      
-      // Use secure function to check answer - only reveals correct answer after submission
-      const { data, error } = await supabase
-        .rpc('check_quiz_answer', { 
-          p_question_id: q.id, 
-          p_answer: userAnswer 
+    try {
+      const submission = await submitQuizAttempt(quizId, answers);
+      setResults(submission.results);
+      setScore(submission.percentage);
+      setShowResults(true);
+
+      if (submission.percentage >= passingScore) {
+        toast({
+          title: '🎉 Congratulations!',
+          description: `You passed with ${Math.round(submission.percentage)}%!`,
         });
-
-      if (error) {
-        console.error('Error checking answer:', error);
-        continue;
+      } else {
+        toast({
+          title: 'Keep practicing!',
+          description: `You scored ${Math.round(submission.percentage)}%. Need ${passingScore}% to pass.`,
+          variant: 'destructive',
+        });
       }
-
-      const result = data?.[0];
-      const isCorrect = result?.is_correct || false;
-      
-      if (isCorrect) {
-        totalScore += q.points;
-      }
-
-      quizResults.push({
-        questionId: q.id,
-        questionText: q.question_text,
-        userAnswer,
-        correctAnswer: result?.correct_answer || '',
-        explanation: result?.explanation || null,
-        isCorrect,
-        points: q.points,
-      });
-    }
-
-    const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
-    setScore(percentage);
-    setResults(quizResults);
-    setShowResults(true);
-
-    // Save attempt
-    if (user) {
-      await supabase.from('quiz_attempts').insert({
-        user_id: user.id,
-        quiz_id: quizId,
-        score: totalScore,
-        max_score: maxScore,
-        passed: percentage >= passingScore,
-        answers,
-        completed_at: new Date().toISOString(),
-      });
-    }
-
-    setSubmitting(false);
-
-    if (percentage >= passingScore) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to submit quiz';
       toast({
-        title: '🎉 Congratulations!',
-        description: `You passed with ${Math.round(percentage)}%!`,
-      });
-    } else {
-      toast({
-        title: 'Keep practicing!',
-        description: `You scored ${Math.round(percentage)}%. Need ${passingScore}% to pass.`,
+        title: 'Error',
+        description: message,
         variant: 'destructive',
       });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -289,7 +213,7 @@ const QuizComponent = ({ quizId, title, passingScore, onComplete }: QuizComponen
         
         <CardContent className="space-y-6">
           <div>
-            <h3 className="text-lg font-medium mb-4">{currentQuestion.question_text}</h3>
+            <h3 className="text-lg font-medium mb-4">{currentQuestion.questionText}</h3>
             
             <RadioGroup
               value={answers[currentQuestion.id] || ''}

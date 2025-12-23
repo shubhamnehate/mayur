@@ -63,6 +63,10 @@ export const client = {
   get: <T = unknown>(url: string, config?: AxiosRequestConfig) => ensureClient().get<T>(url, config),
   post: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
     ensureClient().post<T>(url, data, config),
+  put: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
+    ensureClient().put<T>(url, data, config),
+  delete: <T = unknown>(url: string, config?: AxiosRequestConfig) =>
+    ensureClient().delete<T>(url, config),
 };
 
 export type ApiClient = typeof client;

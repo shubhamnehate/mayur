@@ -7,11 +7,32 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
+import { Course, fetchCourseBySlug } from "@/api/courses";
+import { createEnrollment } from "@/api/enrollments";
+import { initiatePayment } from "@/api/payments";
 
-const coursesData: Record<string, any> = {
+interface StaticCourseInfo {
+  title: string;
+  subtitle?: string;
+  description: string;
+  priceEUR: string;
+  priceINR: string;
+  instructor: string;
+  duration: string;
+  level: string;
+  learningOutcomes: string[];
+  projects: string[];
+  topics: string[];
+  guestLecture?: {
+    speaker: string;
+    title: string;
+    description: string;
+  };
+}
+
+const coursesData: Record<string, StaticCourseInfo> = {
   "ai-bootcamp": {
     title: "AI Bootcamp",
     subtitle: "ML → LLMs → Generative AI",
@@ -235,19 +256,22 @@ const CourseDetail = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [enrolling, setEnrolling] = useState(false);
-  const [dbCourse, setDbCourse] = useState<any>(null);
+  const [dbCourse, setDbCourse] = useState<Course | null>(null);
   const course = courseId ? coursesData[courseId] : null;
+
+  const getErrorMessage = (error: unknown, fallback: string) =>
+    error instanceof Error ? error.message : fallback;
 
   // Fetch course from database for Stripe links
   useEffect(() => {
     const fetchDbCourse = async () => {
       if (!courseId) return;
-      const { data } = await supabase
-        .from('courses')
-        .select('id, stripe_payment_link_eur, stripe_payment_link_inr')
-        .eq('slug', courseId)
-        .single();
-      if (data) setDbCourse(data);
+      try {
+        const data = await fetchCourseBySlug(courseId);
+        setDbCourse(data);
+      } catch (error) {
+        setDbCourse(null);
+      }
     };
     fetchDbCourse();
   }, [courseId]);
@@ -265,15 +289,7 @@ const CourseDetail = () => {
 
     setEnrolling(true);
     try {
-      // First, get the course ID from the database
-      const { data: courseData, error: courseError } = await supabase
-        .from('courses')
-        .select('id')
-        .eq('slug', courseId)
-        .single();
-
-      if (courseError || !courseData) {
-        // Course might not exist in DB yet - show contact info
+      if (!dbCourse) {
         toast({
           title: "Contact for Enrollment",
           description: "Please contact us at cloudbee.robotics@gmail.com to complete your enrollment.",
@@ -281,44 +297,52 @@ const CourseDetail = () => {
         return;
       }
 
-      // Create enrollment record
-      const { error: enrollError } = await supabase
-        .from('enrollments')
-        .insert({
-          user_id: user.id,
-          course_id: courseData.id,
-          payment_method: paymentMethod,
-          payment_status: 'pending'
+      await createEnrollment({
+        courseId: dbCourse.id,
+        paymentMethod,
+        email: user.email ?? undefined,
+      });
+
+      if (paymentMethod !== 'bank_transfer') {
+        const payment = await initiatePayment({
+          courseId: dbCourse.id,
+          paymentMethod,
         });
 
-      if (enrollError) {
-        if (enrollError.code === '23505') {
+        if (payment.redirectUrl) {
           toast({
-            title: "Already Enrolled",
-            description: "You are already enrolled in this course.",
+            title: "Redirecting to Payment",
+            description: "You will be redirected to complete your payment.",
           });
-        } else {
-          throw enrollError;
+          window.open(payment.redirectUrl, '_blank');
+          return;
         }
-        return;
-      }
 
-      // Handle Stripe payments
-      if (paymentMethod === 'stripe_eur' && dbCourse?.stripe_payment_link_eur) {
-        toast({
-          title: "Redirecting to Payment",
-          description: "You will be redirected to complete your payment.",
-        });
-        window.open(dbCourse.stripe_payment_link_eur, '_blank');
-        return;
-      } else if (paymentMethod === 'stripe_inr' && dbCourse?.stripe_payment_link_inr) {
-        toast({
-          title: "Redirecting to Payment",
-          description: "You will be redirected to complete your payment.",
-        });
-        window.open(dbCourse.stripe_payment_link_inr, '_blank');
-        return;
-      } else if (paymentMethod !== 'bank_transfer') {
+        if (payment.message) {
+          toast({
+            title: "Payment Update",
+            description: payment.message,
+          });
+        }
+
+        if (paymentMethod === 'stripe_eur' && dbCourse?.stripePaymentLinkEur) {
+          toast({
+            title: "Redirecting to Payment",
+            description: "You will be redirected to complete your payment.",
+          });
+          window.open(dbCourse.stripePaymentLinkEur, '_blank');
+          return;
+        }
+
+        if (paymentMethod === 'stripe_inr' && dbCourse?.stripePaymentLinkInr) {
+          toast({
+            title: "Redirecting to Payment",
+            description: "You will be redirected to complete your payment.",
+          });
+          window.open(dbCourse.stripePaymentLinkInr, '_blank');
+          return;
+        }
+
         toast({
           title: "Payment Link Not Available",
           description: "Please use bank transfer or contact us at cloudbee.robotics@gmail.com",
@@ -330,10 +354,10 @@ const CourseDetail = () => {
         title: "Enrollment Request Submitted",
         description: "Bank details have been sent to your email. Your access will be activated within 24 hours of payment confirmation.",
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: "Enrollment Failed",
-        description: error.message,
+        description: getErrorMessage(error, "Enrollment failed"),
         variant: "destructive"
       });
     } finally {
@@ -430,19 +454,19 @@ const CourseDetail = () => {
                         </DialogHeader>
                         <div className="space-y-4 mt-4">
                           {/* International Stripe Payments (EUR) */}
-                          <Card className={`p-4 ${dbCourse?.stripe_payment_link_eur ? 'cursor-pointer hover:border-primary' : 'opacity-60'} transition-colors`}>
+                          <Card className={`p-4 ${dbCourse?.stripePaymentLinkEur ? 'cursor-pointer hover:border-primary' : 'opacity-60'} transition-colors`}>
                             <div className="flex items-start gap-3">
                               <CreditCard className="w-6 h-6 text-primary mt-1" />
                               <div className="flex-1">
                                 <h4 className="font-semibold flex items-center gap-2">
                                   Pay with Card (International)
-                                  {!dbCourse?.stripe_payment_link_eur && (
+                                  {!dbCourse?.stripePaymentLinkEur && (
                                     <Badge variant="secondary" className="text-xs">Coming Soon</Badge>
                                   )}
                                 </h4>
                                 <p className="text-sm text-muted-foreground">{course.priceEUR} - Secure payment via Stripe</p>
                                 <p className="text-xs text-muted-foreground mt-1">Credit/Debit cards, Apple Pay, Google Pay</p>
-                                {dbCourse?.stripe_payment_link_eur && (
+                                {dbCourse?.stripePaymentLinkEur && (
                                   <Button 
                                     className="w-full mt-3 gradient-primary" 
                                     onClick={() => handleEnroll('stripe_eur')}
@@ -456,13 +480,13 @@ const CourseDetail = () => {
                           </Card>
 
                           {/* Indian Stripe Payments (INR) */}
-                          <Card className={`p-4 ${dbCourse?.stripe_payment_link_inr ? 'cursor-pointer hover:border-primary' : ''} transition-colors`}>
+                          <Card className={`p-4 ${dbCourse?.stripePaymentLinkInr ? 'cursor-pointer hover:border-primary' : ''} transition-colors`}>
                             <div className="flex items-start gap-3">
                               <IndianRupee className="w-6 h-6 text-primary mt-1" />
                               <div className="flex-1">
                                 <h4 className="font-semibold">Pay with Card (India)</h4>
                                 <p className="text-sm text-muted-foreground">{course.priceINR} - Secure payment via Stripe</p>
-                                {dbCourse?.stripe_payment_link_inr ? (
+                                {dbCourse?.stripePaymentLinkInr ? (
                                   <Button 
                                     className="w-full mt-3 gradient-primary" 
                                     onClick={() => handleEnroll('stripe_inr')}

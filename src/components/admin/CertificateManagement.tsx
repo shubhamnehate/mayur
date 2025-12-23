@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,27 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from '@/hooks/use-toast';
 import { CheckCircle, XCircle, Award, Clock } from 'lucide-react';
-
-interface CertificateRequest {
-  id: string;
-  user_id: string;
-  course_id: string;
-  status: string;
-  certificate_number: string | null;
-  issued_at: string | null;
-  created_at: string;
-  course: {
-    title: string;
-  };
-  profile: {
-    full_name: string | null;
-    email: string | null;
-  } | null;
-}
+import { Certificate, fetchCertificateRequests, updateCertificateStatus } from '@/api/classwork';
 
 const CertificateManagement = () => {
   const { user } = useAuth();
-  const [certificates, setCertificates] = useState<CertificateRequest[]>([]);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
 
@@ -36,66 +19,31 @@ const CertificateManagement = () => {
   }, [user]);
 
   const fetchCertificates = async () => {
-    const { data: certs, error } = await supabase
-      .from('certificates')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching certificates:', error);
-      return;
+    try {
+      const data = await fetchCertificateRequests();
+      setCertificates(data);
+    } finally {
+      setLoading(false);
     }
-
-    // Fetch course and profile data for each certificate
-    const enrichedCerts = await Promise.all(
-      (certs || []).map(async (cert) => {
-        const { data: course } = await supabase
-          .from('courses')
-          .select('title')
-          .eq('id', cert.course_id)
-          .maybeSingle();
-
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('full_name, email')
-          .eq('user_id', cert.user_id)
-          .maybeSingle();
-
-        return {
-          ...cert,
-          course: course || { title: 'Unknown Course' },
-          profile,
-        };
-      })
-    );
-
-    setCertificates(enrichedCerts as CertificateRequest[]);
-    setLoading(false);
   };
 
   const handleApprove = async (certId: string) => {
     setProcessing(certId);
 
-    const { error } = await supabase
-      .from('certificates')
-      .update({ 
-        status: 'approved',
-        approved_by: user?.id,
-      })
-      .eq('id', certId);
-
-    if (error) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    } else {
+    try {
+      await updateCertificateStatus(certId, 'approved');
       toast({
         title: 'Certificate approved',
         description: 'The student can now download their certificate.',
       });
       fetchCertificates();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to approve certificate';
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
     }
 
     setProcessing(null);
@@ -104,23 +52,20 @@ const CertificateManagement = () => {
   const handleReject = async (certId: string) => {
     setProcessing(certId);
 
-    const { error } = await supabase
-      .from('certificates')
-      .update({ status: 'rejected' })
-      .eq('id', certId);
-
-    if (error) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    } else {
+    try {
+      await updateCertificateStatus(certId, 'rejected');
       toast({
         title: 'Certificate rejected',
         description: 'The request has been rejected.',
       });
       fetchCertificates();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to reject certificate';
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
     }
 
     setProcessing(null);
@@ -175,12 +120,12 @@ const CertificateManagement = () => {
                   <TableRow key={cert.id}>
                     <TableCell>
                       <div>
-                        <p className="font-medium">{cert.profile?.full_name || 'Unknown'}</p>
+                        <p className="font-medium">{cert.profile?.fullName || 'Unknown'}</p>
                         <p className="text-sm text-muted-foreground">{cert.profile?.email}</p>
                       </div>
                     </TableCell>
                     <TableCell>{cert.course?.title}</TableCell>
-                    <TableCell>{new Date(cert.created_at).toLocaleDateString()}</TableCell>
+                    <TableCell>{cert.createdAt ? new Date(cert.createdAt).toLocaleDateString() : '-'}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
                         <Button
@@ -238,10 +183,10 @@ const CertificateManagement = () => {
               <TableBody>
                 {processedCerts.map((cert) => (
                   <TableRow key={cert.id}>
-                    <TableCell>{cert.profile?.full_name || 'Unknown'}</TableCell>
+                    <TableCell>{cert.profile?.fullName || 'Unknown'}</TableCell>
                     <TableCell>{cert.course?.title}</TableCell>
                     <TableCell className="font-mono text-sm">
-                      {cert.certificate_number || '-'}
+                      {cert.certificateNumber || '-'}
                     </TableCell>
                     <TableCell>
                       <Badge variant={cert.status === 'approved' ? 'default' : 'destructive'}>
@@ -249,7 +194,7 @@ const CertificateManagement = () => {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {cert.issued_at ? new Date(cert.issued_at).toLocaleDateString() : '-'}
+                      {cert.issuedAt ? new Date(cert.issuedAt).toLocaleDateString() : '-'}
                     </TableCell>
                   </TableRow>
                 ))}
