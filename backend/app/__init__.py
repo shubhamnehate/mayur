@@ -1,10 +1,14 @@
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify
+from flask_jwt_extended import JWTManager
 
 from .db import init_db
+
+jwt = JWTManager()
 
 
 def create_app() -> Flask:
@@ -17,9 +21,13 @@ def create_app() -> Flask:
         "DATABASE_URL", "sqlite:///app.db"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["JWT_SECRET"] = os.getenv("JWT_SECRET", "change-me")
+    app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET", "change-me")
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(
+        seconds=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES", "3600"))
+    )
 
     init_db(app)
+    jwt.init_app(app)
 
     @app.route("/health")
     def healthcheck():
