@@ -1,12 +1,20 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { client, clearStoredToken, getStoredToken, onUnauthorized, setAccessToken } from '@/api/client';
+import { isAxiosError } from '@/lib/axios';
 
 type AppRole = 'admin' | 'instructor' | 'student';
 
+interface ApiUser {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  avatar_url?: string | null;
+  roles?: AppRole[];
+}
+
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: ApiUser | null;
+  token: string | null;
   roles: AppRole[];
   profile: { full_name: string | null; avatar_url: string | null } | null;
   loading: boolean;
@@ -18,116 +26,124 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+interface AuthResponse {
+  token: string;
+  user: ApiUser;
+  roles?: AppRole[];
+}
+
+const extractProfile = (user: ApiUser | null) =>
+  user
+    ? {
+        full_name: user.full_name ?? null,
+        avatar_url: user.avatar_url ?? null,
+      }
+    : null;
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<ApiUser | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
-  const [profile, setProfile] = useState<{ full_name: string | null; avatar_url: string | null } | null>(null);
+  const [token, setTokenState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const fetchUserData = async (userId: string) => {
-    // Fetch roles
-    const { data: rolesData } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', userId);
-    
-    if (rolesData) {
-      setRoles(rolesData.map(r => r.role as AppRole));
-    }
-
-    // Fetch profile
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('full_name, avatar_url')
-      .eq('user_id', userId)
-      .single();
-    
-    if (profileData) {
-      setProfile(profileData);
-    }
-  };
-
-  useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          // Defer Supabase calls with setTimeout
-          setTimeout(() => {
-            fetchUserData(session.user.id);
-          }, 0);
-        } else {
-          setRoles([]);
-          setProfile(null);
-        }
-        setLoading(false);
-      }
-    );
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserData(session.user.id);
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const signUp = async (email: string, password: string, fullName: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl,
-        data: {
-          full_name: fullName,
-        },
-      },
-    });
-    return { error };
-  };
-
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { error };
-  };
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setRoles([]);
-    setProfile(null);
-  };
 
   const hasRole = (role: AppRole) => roles.includes(role);
 
-  return (
-    <AuthContext.Provider value={{
+  const applyAuthResponse = (data: AuthResponse) => {
+    setAccessToken(data.token);
+    setTokenState(data.token);
+    setUser(data.user);
+    setRoles(data.roles ?? data.user.roles ?? []);
+  };
+
+  const toError = (error: unknown, fallback: string) => {
+    if (isAxiosError(error)) {
+      const payload = error.response?.data as { message?: string; error?: string };
+      const message = payload?.message || payload?.error;
+      if (message) return new Error(message);
+    }
+    return error instanceof Error ? error : new Error(fallback);
+  };
+
+  const signUp = async (email: string, password: string, fullName: string) => {
+    try {
+      const { data } = await client.post<AuthResponse>('/api/auth/register', {
+        email,
+        password,
+        fullName,
+      });
+      applyAuthResponse(data);
+      return { error: null };
+    } catch (error) {
+      return { error: toError(error, 'Registration failed') };
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      const { data } = await client.post<AuthResponse>('/api/auth/login', {
+        email,
+        password,
+      });
+      applyAuthResponse(data);
+      return { error: null };
+    } catch (error) {
+      return { error: toError(error, 'Login failed') };
+    }
+  };
+
+  const signOut = async () => {
+    clearStoredToken();
+    setAccessToken(null);
+    setTokenState(null);
+    setUser(null);
+    setRoles([]);
+  };
+
+  useEffect(() => {
+    const unsubscribe = onUnauthorized(() => {
+      signOut();
+    });
+
+    const bootstrap = async () => {
+      const storedToken = getStoredToken();
+      if (!storedToken) {
+        setLoading(false);
+        return;
+      }
+
+      setAccessToken(storedToken);
+      setTokenState(storedToken);
+
+      try {
+        const { data } = await client.get<AuthResponse>('/api/me');
+        applyAuthResponse({ ...data, token: storedToken });
+      } catch (error) {
+        clearStoredToken();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    bootstrap();
+    return () => unsubscribe();
+  }, []);
+
+  const contextValue = useMemo(
+    () => ({
       user,
-      session,
+      token,
       roles,
-      profile,
+      profile: extractProfile(user),
       loading,
       signUp,
       signIn,
       signOut,
       hasRole,
-    }}>
-      {children}
-    </AuthContext.Provider>
+    }),
+    [user, token, roles, loading]
   );
+
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {
@@ -137,3 +153,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+export type { AppRole, ApiUser };
