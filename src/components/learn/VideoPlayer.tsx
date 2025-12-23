@@ -1,18 +1,10 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Play, SkipBack, SkipForward } from 'lucide-react';
+import { SkipBack, SkipForward } from 'lucide-react';
+import { fetchVideoClips, VideoClip } from '@/api/lessons';
 
-interface VideoClip {
-  id: string;
-  title: string;
-  start_seconds: number;
-  end_seconds: number | null;
-  notes: string | null;
-  order_index: number;
-}
 
 interface VideoPlayerProps {
   videoUrl: string;
@@ -25,12 +17,7 @@ const VideoPlayer = ({ videoUrl, lessonId }: VideoPlayerProps) => {
 
   useEffect(() => {
     const fetchClips = async () => {
-      const { data } = await supabase
-        .from('video_clips')
-        .select('*')
-        .eq('lesson_id', lessonId)
-        .order('order_index');
-      
+      const data = await fetchVideoClips(lessonId);
       if (data && data.length > 0) {
         setClips(data);
       }

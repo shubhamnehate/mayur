@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import Navigation from '@/components/Navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,18 +15,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from '@/hooks/use-toast';
 import { Users, BookOpen, Bell, Plus, Search, CheckCircle, XCircle, Award } from 'lucide-react';
 import CertificateManagement from '@/components/admin/CertificateManagement';
+import { Course, listCourses } from '@/api/courses';
+import { createEnrollment, Enrollment, fetchEnrollments, updateEnrollmentStatus } from '@/api/enrollments';
+import { createAnnouncement } from '@/api/classwork';
 
 const AdminPanel = () => {
   const { user, loading, hasRole } = useAuth();
   const navigate = useNavigate();
-  const [enrollments, setEnrollments] = useState<any[]>([]);
-  const [courses, setCourses] = useState<any[]>([]);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [searchEmail, setSearchEmail] = useState('');
   const [selectedCourse, setSelectedCourse] = useState('');
   const [manualEnrollEmail, setManualEnrollEmail] = useState('');
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementContent, setAnnouncementContent] = useState('');
   const [announcementCourse, setAnnouncementCourse] = useState('global');
+
+  const getErrorMessage = (error: unknown, fallback: string) =>
+    error instanceof Error ? error.message : fallback;
 
   useEffect(() => {
     if (!loading && (!user || (!hasRole('instructor') && !hasRole('admin')))) {
@@ -37,44 +42,16 @@ const AdminPanel = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      // Fetch courses
-      const { data: coursesData } = await supabase
-        .from('courses')
-        .select('id, title, slug')
-        .order('title');
-      
-      if (coursesData) setCourses(coursesData);
-
-      // Fetch enrollments with user profiles
-      const { data: enrollmentsData } = await supabase
-        .from('enrollments')
-        .select(`
-          id,
-          enrolled_at,
-          payment_status,
-          payment_method,
-          course:courses (id, title),
-          user_id
-        `)
-        .order('enrolled_at', { ascending: false });
-
-      if (enrollmentsData) {
-        // Fetch profiles for each enrollment
-        const enrichedEnrollments = await Promise.all(
-          enrollmentsData.map(async (enrollment) => {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('full_name')
-              .eq('user_id', enrollment.user_id)
-              .single();
-            
-            return {
-              ...enrollment,
-              profile,
-            };
-          })
-        );
-        setEnrollments(enrichedEnrollments);
+      try {
+        const [coursesData, enrollmentData] = await Promise.all([listCourses(), fetchEnrollments()]);
+        setCourses(coursesData);
+        setEnrollments(enrollmentData);
+      } catch (error) {
+        toast({
+          title: 'Error loading admin data',
+          description: getErrorMessage(error, 'Unable to load courses and enrollments'),
+          variant: 'destructive',
+        });
       }
     };
 
@@ -91,111 +68,50 @@ const AdminPanel = () => {
       return;
     }
 
-    // Search for user by email - first try exact match in profiles.email
-    let { data: profiles } = await supabase
-      .from('profiles')
-      .select('user_id, full_name, email')
-      .or(`email.ilike.%${manualEnrollEmail}%,full_name.ilike.%${manualEnrollEmail}%`);
+    try {
+      await createEnrollment({
+        courseId: selectedCourse,
+        email: manualEnrollEmail,
+        paymentMethod: 'manual',
+      });
 
-    if (!profiles || profiles.length === 0) {
       toast({
-        title: 'User not found',
-        description: 'No user found matching that email/name. Please ensure the student has signed up first.',
+        title: 'Success',
+        description: `${manualEnrollEmail} enrolled successfully!`,
+      });
+      setManualEnrollEmail('');
+      setSelectedCourse('');
+
+      const refreshedEnrollments = await fetchEnrollments();
+      setEnrollments(refreshedEnrollments);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: getErrorMessage(error, 'Unable to enroll student'),
         variant: 'destructive',
       });
-      return;
-    }
-
-    const targetUserId = profiles[0].user_id;
-
-    const { error } = await supabase
-      .from('enrollments')
-      .insert({
-        user_id: targetUserId,
-        course_id: selectedCourse,
-        payment_status: 'completed',
-        payment_method: 'manual',
-      });
-
-    if (error) {
-      if (error.code === '23505') {
-        toast({
-          title: 'Already enrolled',
-          description: 'This user is already enrolled in this course.',
-          variant: 'destructive',
-        });
-      } else {
-        toast({
-          title: 'Error',
-          description: error.message,
-          variant: 'destructive',
-        });
-      }
-      return;
-    }
-
-    toast({
-      title: 'Success',
-      description: `${profiles[0].full_name || manualEnrollEmail} enrolled successfully!`,
-    });
-    setManualEnrollEmail('');
-    setSelectedCourse('');
-    
-    // Refresh enrollments
-    const { data: enrollmentsData } = await supabase
-      .from('enrollments')
-      .select(`
-        id,
-        enrolled_at,
-        payment_status,
-        payment_method,
-        course:courses (id, title),
-        user_id
-      `)
-      .order('enrolled_at', { ascending: false });
-
-    if (enrollmentsData) {
-      const enrichedEnrollments = await Promise.all(
-        enrollmentsData.map(async (enrollment) => {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name, email')
-            .eq('user_id', enrollment.user_id)
-            .single();
-          
-          return {
-            ...enrollment,
-            profile,
-          };
-        })
-      );
-      setEnrollments(enrichedEnrollments);
     }
   };
 
   const handleApprovePayment = async (enrollmentId: string) => {
-    const { error } = await supabase
-      .from('enrollments')
-      .update({ payment_status: 'completed' })
-      .eq('id', enrollmentId);
+    try {
+      await updateEnrollmentStatus(enrollmentId, 'completed');
 
-    if (error) {
+      setEnrollments(prev => 
+        prev.map(e => e.id === enrollmentId ? { ...e, paymentStatus: 'completed' } : e)
+      );
+    
+      toast({
+        title: 'Payment approved',
+        description: 'Student can now access the course.',
+      });
+    } catch (error) {
       toast({
         title: 'Error',
-        description: error.message,
+        description: getErrorMessage(error, 'Unable to update payment status'),
         variant: 'destructive',
       });
-      return;
     }
-
-    setEnrollments(prev => 
-      prev.map(e => e.id === enrollmentId ? { ...e, payment_status: 'completed' } : e)
-    );
-    
-    toast({
-      title: 'Payment approved',
-      description: 'Student can now access the course.',
-    });
   };
 
   const handlePostAnnouncement = async () => {
@@ -208,32 +124,28 @@ const AdminPanel = () => {
       return;
     }
 
-    const { error } = await supabase
-      .from('announcements')
-      .insert({
+    try {
+      await createAnnouncement({
         title: announcementTitle,
         content: announcementContent,
-        course_id: announcementCourse === 'global' ? null : announcementCourse,
-        is_global: announcementCourse === 'global',
-        author_id: user?.id,
+        courseId: announcementCourse === 'global' ? null : announcementCourse,
+        isGlobal: announcementCourse === 'global',
       });
 
-    if (error) {
+      toast({
+        title: 'Announcement posted',
+        description: 'Students will be notified.',
+      });
+      setAnnouncementTitle('');
+      setAnnouncementContent('');
+      setAnnouncementCourse('global');
+    } catch (error) {
       toast({
         title: 'Error',
-        description: error.message,
+        description: getErrorMessage(error, 'Unable to post announcement'),
         variant: 'destructive',
       });
-      return;
     }
-
-    toast({
-      title: 'Announcement posted',
-      description: 'Students will be notified.',
-    });
-    setAnnouncementTitle('');
-    setAnnouncementContent('');
-    setAnnouncementCourse('global');
   };
 
   if (loading) {
@@ -354,22 +266,23 @@ const AdminPanel = () => {
                     {enrollments
                       .filter(e => 
                         !searchEmail || 
-                        e.profile?.full_name?.toLowerCase().includes(searchEmail.toLowerCase())
+                        e.studentName?.toLowerCase().includes(searchEmail.toLowerCase()) ||
+                        e.studentEmail?.toLowerCase().includes(searchEmail.toLowerCase())
                       )
                       .map((enrollment) => (
                         <TableRow key={enrollment.id}>
-                          <TableCell>{enrollment.profile?.full_name || 'Unknown'}</TableCell>
+                          <TableCell>{enrollment.studentName || enrollment.studentEmail || 'Unknown'}</TableCell>
                           <TableCell>{enrollment.course?.title}</TableCell>
                           <TableCell>
-                            <Badge variant={enrollment.payment_status === 'completed' ? 'default' : 'secondary'}>
-                              {enrollment.payment_status}
+                            <Badge variant={enrollment.paymentStatus === 'completed' ? 'default' : 'secondary'}>
+                              {enrollment.paymentStatus}
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {new Date(enrollment.enrolled_at).toLocaleDateString()}
+                            {enrollment.enrolledAt ? new Date(enrollment.enrolledAt).toLocaleDateString() : '-'}
                           </TableCell>
                           <TableCell>
-                            {enrollment.payment_status !== 'completed' && (
+                            {enrollment.paymentStatus !== 'completed' && (
                               <Button 
                                 size="sm" 
                                 variant="outline"

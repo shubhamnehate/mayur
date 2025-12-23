@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import Navigation from '@/components/Navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,31 +12,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { toast } from '@/hooks/use-toast';
 import { ArrowLeft, Save, Plus, Trash2, GripVertical, ExternalLink } from 'lucide-react';
-
-interface Chapter {
-  id?: string;
-  title: string;
-  description: string;
-  order_index: number;
-  lessons: Lesson[];
-}
-
-interface Lesson {
-  id?: string;
-  title: string;
-  description: string;
-  video_url: string;
-  colab_notebook_url: string;
-  notes_content: string;
-  order_index: number;
-}
+import { Chapter, Course, Lesson, fetchCourseBySlug, updateCourse, createChapter, updateChapter, deleteChapter } from '@/api/courses';
+import { createLesson, deleteLesson, updateLesson } from '@/api/lessons';
 
 const AdminCourseEditor = () => {
   const { courseSlug } = useParams();
   const navigate = useNavigate();
   const { user, loading, hasRole } = useAuth();
   
-  const [course, setCourse] = useState<any>(null);
+  const [course, setCourse] = useState<Course | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [saving, setSaving] = useState(false);
   
@@ -53,6 +36,9 @@ const AdminCourseEditor = () => {
   const [stripePaymentLinkEur, setStripePaymentLinkEur] = useState('');
   const [stripePaymentLinkInr, setStripePaymentLinkInr] = useState('');
 
+  const getErrorMessage = (error: unknown, fallback: string) =>
+    error instanceof Error ? error.message : fallback;
+
   useEffect(() => {
     if (!loading && (!user || (!hasRole('instructor') && !hasRole('admin')))) {
       navigate('/dashboard');
@@ -62,59 +48,28 @@ const AdminCourseEditor = () => {
   useEffect(() => {
     const fetchCourse = async () => {
       if (!courseSlug) return;
-      
-      const { data: courseData, error } = await supabase
-        .from('courses')
-        .select('*')
-        .eq('slug', courseSlug)
-        .single();
 
-      if (error) {
+      try {
+        const content = await fetchCourseBySlug(courseSlug);
+        setCourse(content as Course);
+        setChapters(content.chapters || []);
+
+        setTitle(content.title || '');
+        setShortDescription(content.shortDescription || '');
+        setFullDescription(content.fullDescription || '');
+        setPriceEur(content.priceEur?.toString() || '');
+        setPriceInr(content.priceInr?.toString() || '');
+        setGoogleClassroomUrl(content.googleClassroomUrl || '');
+        setThumbnailUrl(content.thumbnailUrl || '');
+        setIsPublished(content.isPublished || false);
+        setStripePaymentLinkEur(content.stripePaymentLinkEur || '');
+        setStripePaymentLinkInr(content.stripePaymentLinkInr || '');
+      } catch (error) {
         toast({
           title: 'Error loading course',
-          description: error.message,
+          description: getErrorMessage(error, 'Unable to load course data'),
           variant: 'destructive'
         });
-        return;
-      }
-
-      if (courseData) {
-        setCourse(courseData);
-        setTitle(courseData.title || '');
-        setShortDescription(courseData.short_description || '');
-        setFullDescription(courseData.full_description || '');
-        setPriceEur(courseData.price_eur?.toString() || '');
-        setPriceInr(courseData.price_inr?.toString() || '');
-        setGoogleClassroomUrl(courseData.google_classroom_url || '');
-        setThumbnailUrl(courseData.thumbnail_url || '');
-        setIsPublished(courseData.is_published || false);
-        setStripePaymentLinkEur(courseData.stripe_payment_link_eur || '');
-        setStripePaymentLinkInr(courseData.stripe_payment_link_inr || '');
-
-        // Fetch chapters and lessons
-        const { data: chaptersData } = await supabase
-          .from('course_chapters')
-          .select('*')
-          .eq('course_id', courseData.id)
-          .order('order_index');
-
-        if (chaptersData) {
-          const chaptersWithLessons = await Promise.all(
-            chaptersData.map(async (chapter) => {
-              const { data: lessonsData } = await supabase
-                .from('lessons')
-                .select('*')
-                .eq('chapter_id', chapter.id)
-                .order('order_index');
-              
-              return {
-                ...chapter,
-                lessons: lessonsData || []
-              };
-            })
-          );
-          setChapters(chaptersWithLessons);
-        }
       }
     };
 
@@ -126,33 +81,28 @@ const AdminCourseEditor = () => {
     setSaving(true);
 
     try {
-      const { error } = await supabase
-        .from('courses')
-        .update({
-          title,
-          short_description: shortDescription,
-          full_description: fullDescription,
-          price_eur: parseFloat(priceEur) || 0,
-          price_inr: parseFloat(priceInr) || 0,
-          google_classroom_url: googleClassroomUrl,
-          thumbnail_url: thumbnailUrl,
-          is_published: isPublished,
-          stripe_payment_link_eur: stripePaymentLinkEur || null,
-          stripe_payment_link_inr: stripePaymentLinkInr || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', course.id);
-
-      if (error) throw error;
+      const updated = await updateCourse(course.id, {
+        title,
+        shortDescription,
+        fullDescription,
+        priceEur: parseFloat(priceEur) || 0,
+        priceInr: parseFloat(priceInr) || 0,
+        googleClassroomUrl,
+        thumbnailUrl,
+        isPublished,
+        stripePaymentLinkEur: stripePaymentLinkEur || null,
+        stripePaymentLinkInr: stripePaymentLinkInr || null
+      });
+      setCourse(updated);
 
       toast({
         title: 'Course saved',
         description: 'Course details updated successfully.'
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: 'Error saving course',
-        description: error.message,
+        description: getErrorMessage(error, 'Unable to save course'),
         variant: 'destructive'
       });
     } finally {
@@ -163,151 +113,129 @@ const AdminCourseEditor = () => {
   const handleAddChapter = async () => {
     if (!course?.id) return;
 
-    const newChapter = {
-      course_id: course.id,
-      title: 'New Chapter',
-      description: '',
-      order_index: chapters.length
-    };
+    try {
+      const newChapter = await createChapter(course.id, {
+        title: 'New Chapter',
+        description: '',
+        orderIndex: chapters.length
+      });
 
-    const { data, error } = await supabase
-      .from('course_chapters')
-      .insert(newChapter)
-      .select()
-      .single();
-
-    if (error) {
+      setChapters([...chapters, { ...newChapter, lessons: newChapter.lessons || [] }]);
+      toast({ title: 'Chapter added' });
+    } catch (error) {
       toast({
         title: 'Error adding chapter',
-        description: error.message,
+        description: getErrorMessage(error, 'Unable to add chapter'),
         variant: 'destructive'
       });
-      return;
     }
-
-    setChapters([...chapters, { ...data, lessons: [] }]);
-    toast({ title: 'Chapter added' });
   };
 
   const handleUpdateChapter = async (chapterId: string, updates: Partial<Chapter>) => {
-    const { error } = await supabase
-      .from('course_chapters')
-      .update(updates)
-      .eq('id', chapterId);
+    try {
+      const updated = await updateChapter(chapterId, {
+        title: updates.title,
+        description: updates.description,
+        orderIndex: updates.orderIndex,
+      });
 
-    if (error) {
+      setChapters(chapters.map(ch => 
+        ch.id === chapterId ? { ...ch, ...updated } : ch
+      ));
+    } catch (error) {
       toast({
         title: 'Error updating chapter',
-        description: error.message,
+        description: getErrorMessage(error, 'Unable to update chapter'),
         variant: 'destructive'
       });
-      return;
     }
-
-    setChapters(chapters.map(ch => 
-      ch.id === chapterId ? { ...ch, ...updates } : ch
-    ));
   };
 
   const handleDeleteChapter = async (chapterId: string) => {
-    const { error } = await supabase
-      .from('course_chapters')
-      .delete()
-      .eq('id', chapterId);
-
-    if (error) {
+    try {
+      await deleteChapter(chapterId);
+      setChapters(chapters.filter(ch => ch.id !== chapterId));
+      toast({ title: 'Chapter deleted' });
+    } catch (error) {
       toast({
         title: 'Error deleting chapter',
-        description: error.message,
+        description: getErrorMessage(error, 'Unable to delete chapter'),
         variant: 'destructive'
       });
-      return;
     }
-
-    setChapters(chapters.filter(ch => ch.id !== chapterId));
-    toast({ title: 'Chapter deleted' });
   };
 
   const handleAddLesson = async (chapterId: string) => {
     const chapter = chapters.find(ch => ch.id === chapterId);
     if (!chapter) return;
 
-    const newLesson = {
-      chapter_id: chapterId,
-      title: 'New Lesson',
-      description: '',
-      video_url: '',
-      colab_notebook_url: '',
-      notes_content: '',
-      order_index: chapter.lessons.length
-    };
+    try {
+      const newLesson = await createLesson(chapterId, {
+        title: 'New Lesson',
+        description: '',
+        videoUrl: '',
+        colabNotebookUrl: '',
+        notesContent: '',
+        orderIndex: chapter.lessons.length
+      });
 
-    const { data, error } = await supabase
-      .from('lessons')
-      .insert(newLesson)
-      .select()
-      .single();
-
-    if (error) {
+      setChapters(chapters.map(ch => 
+        ch.id === chapterId 
+          ? { ...ch, lessons: [...ch.lessons, newLesson] }
+          : ch
+      ));
+      toast({ title: 'Lesson added' });
+    } catch (error) {
       toast({
         title: 'Error adding lesson',
-        description: error.message,
+        description: getErrorMessage(error, 'Unable to add lesson'),
         variant: 'destructive'
       });
-      return;
     }
-
-    setChapters(chapters.map(ch => 
-      ch.id === chapterId 
-        ? { ...ch, lessons: [...ch.lessons, data] }
-        : ch
-    ));
-    toast({ title: 'Lesson added' });
   };
 
   const handleUpdateLesson = async (lessonId: string, chapterId: string, updates: Partial<Lesson>) => {
-    const { error } = await supabase
-      .from('lessons')
-      .update(updates)
-      .eq('id', lessonId);
+    try {
+      const updated = await updateLesson(lessonId, {
+        title: updates.title,
+        description: updates.description,
+        videoUrl: updates.videoUrl,
+        colabNotebookUrl: updates.colabNotebookUrl,
+        notesContent: updates.notesContent,
+        orderIndex: updates.orderIndex,
+      });
 
-    if (error) {
+      setChapters(chapters.map(ch => 
+        ch.id === chapterId 
+          ? { ...ch, lessons: ch.lessons.map(l => l.id === lessonId ? { ...l, ...updated } : l) }
+          : ch
+      ));
+    } catch (error) {
       toast({
         title: 'Error updating lesson',
-        description: error.message,
+        description: getErrorMessage(error, 'Unable to update lesson'),
         variant: 'destructive'
       });
-      return;
     }
-
-    setChapters(chapters.map(ch => 
-      ch.id === chapterId 
-        ? { ...ch, lessons: ch.lessons.map(l => l.id === lessonId ? { ...l, ...updates } : l) }
-        : ch
-    ));
   };
 
   const handleDeleteLesson = async (lessonId: string, chapterId: string) => {
-    const { error } = await supabase
-      .from('lessons')
-      .delete()
-      .eq('id', lessonId);
+    try {
+      await deleteLesson(lessonId);
 
-    if (error) {
+      setChapters(chapters.map(ch => 
+        ch.id === chapterId 
+          ? { ...ch, lessons: ch.lessons.filter(l => l.id !== lessonId) }
+          : ch
+      ));
+      toast({ title: 'Lesson deleted' });
+    } catch (error) {
       toast({
         title: 'Error deleting lesson',
-        description: error.message,
+        description: getErrorMessage(error, 'Unable to delete lesson'),
         variant: 'destructive'
       });
-      return;
     }
-
-    setChapters(chapters.map(ch => 
-      ch.id === chapterId 
-        ? { ...ch, lessons: ch.lessons.filter(l => l.id !== lessonId) }
-        : ch
-    ));
-    toast({ title: 'Lesson deleted' });
   };
 
   if (loading) {
@@ -550,16 +478,16 @@ const AdminCourseEditor = () => {
                                     <div className="space-y-1">
                                       <Label className="text-xs">Video URL (Google Drive/YouTube)</Label>
                                       <Input
-                                        value={lesson.video_url || ''}
-                                        onChange={(e) => handleUpdateLesson(lesson.id!, chapter.id!, { video_url: e.target.value })}
+                                        value={lesson.videoUrl || ''}
+                                        onChange={(e) => handleUpdateLesson(lesson.id!, chapter.id!, { videoUrl: e.target.value })}
                                         placeholder="https://drive.google.com/..."
                                       />
                                     </div>
                                     <div className="space-y-1">
                                       <Label className="text-xs">Colab Notebook URL</Label>
                                       <Input
-                                        value={lesson.colab_notebook_url || ''}
-                                        onChange={(e) => handleUpdateLesson(lesson.id!, chapter.id!, { colab_notebook_url: e.target.value })}
+                                        value={lesson.colabNotebookUrl || ''}
+                                        onChange={(e) => handleUpdateLesson(lesson.id!, chapter.id!, { colabNotebookUrl: e.target.value })}
                                         placeholder="https://colab.research.google.com/..."
                                       />
                                     </div>
@@ -575,8 +503,8 @@ const AdminCourseEditor = () => {
                                   <div className="space-y-1">
                                     <Label className="text-xs">Notes (Markdown)</Label>
                                     <Textarea
-                                      value={lesson.notes_content || ''}
-                                      onChange={(e) => handleUpdateLesson(lesson.id!, chapter.id!, { notes_content: e.target.value })}
+                                      value={lesson.notesContent || ''}
+                                      onChange={(e) => handleUpdateLesson(lesson.id!, chapter.id!, { notesContent: e.target.value })}
                                       placeholder="Lesson notes in markdown..."
                                       rows={3}
                                     />

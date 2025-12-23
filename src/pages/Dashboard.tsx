@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,27 +10,12 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BookOpen, Play, Trophy, Clock, ExternalLink, GraduationCap, Award } from 'lucide-react';
 import CertificatesSection from '@/components/dashboard/CertificatesSection';
-
-interface EnrolledCourse {
-  id: string;
-  course: {
-    id: string;
-    slug: string;
-    title: string;
-    thumbnail_url: string | null;
-    google_classroom_url: string | null;
-  };
-  enrolled_at: string;
-  payment_status: string;
-  progress: number;
-  completedLessons: number;
-  totalLessons: number;
-}
+import { Enrollment, fetchMyEnrollments } from '@/api/enrollments';
 
 const Dashboard = () => {
   const { user, profile, loading, hasRole } = useAuth();
   const navigate = useNavigate();
-  const [enrolledCourses, setEnrolledCourses] = useState<EnrolledCourse[]>([]);
+  const [enrolledCourses, setEnrolledCourses] = useState<Enrollment[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(true);
 
   useEffect(() => {
@@ -44,69 +28,12 @@ const Dashboard = () => {
     const fetchEnrollments = async () => {
       if (!user) return;
 
-      const { data: enrollments, error } = await supabase
-        .from('enrollments')
-        .select(`
-          id,
-          enrolled_at,
-          payment_status,
-          course:courses (
-            id,
-            slug,
-            title,
-            thumbnail_url,
-            google_classroom_url
-          )
-        `)
-        .eq('user_id', user.id);
-
-      if (error) {
-        console.error('Error fetching enrollments:', error);
-        return;
+      try {
+        const enrollments = await fetchMyEnrollments();
+        setEnrolledCourses(enrollments);
+      } finally {
+        setLoadingCourses(false);
       }
-
-      // Calculate progress for each course
-      const coursesWithProgress = await Promise.all(
-        (enrollments || []).map(async (enrollment: any) => {
-          // Get total lessons for this course
-          const { data: chapters } = await supabase
-            .from('course_chapters')
-            .select('id')
-            .eq('course_id', enrollment.course.id);
-
-          if (!chapters || chapters.length === 0) {
-            return {
-              ...enrollment,
-              progress: 0,
-              completedLessons: 0,
-              totalLessons: 0,
-            };
-          }
-
-          const { count: totalLessons } = await supabase
-            .from('lessons')
-            .select('*', { count: 'exact', head: true })
-            .in('chapter_id', chapters.map(c => c.id));
-
-          const { count: completedLessons } = await supabase
-            .from('lesson_progress')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id)
-            .eq('completed', true);
-
-          const progress = totalLessons ? ((completedLessons || 0) / totalLessons) * 100 : 0;
-
-          return {
-            ...enrollment,
-            progress,
-            completedLessons: completedLessons || 0,
-            totalLessons: totalLessons || 0,
-          };
-        })
-      );
-
-      setEnrolledCourses(coursesWithProgress);
-      setLoadingCourses(false);
     };
 
     fetchEnrollments();
@@ -205,60 +132,72 @@ const Dashboard = () => {
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {enrolledCourses.map((enrollment) => (
-                <Card key={enrollment.id} className="border-border/50 hover:shadow-soft transition-shadow overflow-hidden">
-                  <div className="aspect-video bg-gradient-to-br from-primary/20 to-secondary/20 relative">
-                    {enrollment.course.thumbnail_url && (
-                      <img 
-                        src={enrollment.course.thumbnail_url} 
-                        alt={enrollment.course.title}
-                        className="w-full h-full object-cover"
-                      />
-                    )}
-                    {enrollment.payment_status !== 'completed' && (
-                      <Badge className="absolute top-2 right-2 bg-yellow-500">
-                        Payment Pending
-                      </Badge>
-                    )}
-                  </div>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-lg line-clamp-2">
-                      {enrollment.course.title}
-                    </CardTitle>
-                    <CardDescription>
-                      {enrollment.completedLessons} / {enrollment.totalLessons} lessons completed
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Progress</span>
-                        <span>{Math.round(enrollment.progress)}%</span>
-                      </div>
-                      <Progress value={enrollment.progress} className="h-2" />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button 
-                        className="flex-1 gradient-primary" 
-                        onClick={() => navigate(`/learn/${enrollment.course.slug}`)}
-                        disabled={enrollment.payment_status !== 'completed'}
-                      >
-                        <Play className="h-4 w-4 mr-2" />
-                        Continue
-                      </Button>
-                      {enrollment.course.google_classroom_url && (
-                        <Button 
-                          variant="outline" 
-                          size="icon"
-                          onClick={() => window.open(enrollment.course.google_classroom_url!, '_blank')}
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </Button>
+              {enrolledCourses.map((enrollment) => {
+                const progress =
+                  enrollment.progressPercent ??
+                  (enrollment.totalLessons
+                    ? ((enrollment.completedLessons ?? 0) / enrollment.totalLessons) * 100
+                    : 0);
+
+                return (
+                  <Card key={enrollment.id} className="border-border/50 hover:shadow-soft transition-shadow overflow-hidden">
+                    <div className="aspect-video bg-gradient-to-br from-primary/20 to-secondary/20 relative">
+                      {enrollment.course?.thumbnailUrl && (
+                        <img 
+                          src={enrollment.course.thumbnailUrl} 
+                          alt={enrollment.course.title}
+                          className="w-full h-full object-cover"
+                        />
+                      )}
+                      {enrollment.paymentStatus !== 'completed' && (
+                        <Badge className="absolute top-2 right-2 bg-yellow-500">
+                          Payment Pending
+                        </Badge>
                       )}
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg line-clamp-2">
+                        {enrollment.course?.title}
+                      </CardTitle>
+                      <CardDescription>
+                        {enrollment.completedLessons ?? 0} / {enrollment.totalLessons ?? 0} lessons completed
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span>Progress</span>
+                          <span>{Math.round(progress)}%</span>
+                        </div>
+                        <Progress value={progress} className="h-2" />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          className="flex-1 gradient-primary" 
+                          onClick={() => navigate(`/learn/${enrollment.course?.slug}`)}
+                          disabled={enrollment.paymentStatus !== 'completed'}
+                        >
+                          <Play className="h-4 w-4 mr-2" />
+                          Continue
+                        </Button>
+                        {enrollment.course?.googleClassroomUrl && (
+                          <Button 
+                            variant="outline" 
+                            size="icon"
+                            onClick={() => {
+                              if (enrollment.course?.googleClassroomUrl) {
+                                window.open(enrollment.course.googleClassroomUrl, '_blank');
+                              }
+                            }}
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>
