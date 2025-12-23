@@ -1,11 +1,18 @@
 from datetime import datetime
 
+from sqlalchemy import CheckConstraint, Index, UniqueConstraint
+
 from .db import db
 
 
 ROLE_VALUES = ("student", "instructor", "admin")
 ENROLLMENT_STATUS_VALUES = ("active", "completed", "cancelled")
 PAYMENT_STATUS_VALUES = ("pending", "completed", "failed", "refunded")
+PAYMENT_ORDER_STATUS_VALUES = ("created", "paid", "failed")
+
+
+def _enum_values(values: tuple[str, ...]) -> str:
+    return ", ".join(f"'{value}'" for value in values)
 
 
 class Role(db.Model):
@@ -27,9 +34,7 @@ class User(db.Model):
     __tablename__ = "users"
     __table_args__ = (
         db.CheckConstraint(
-            db.text(
-                f"role IN ({', '.join([f'\\'{value}\\'' for value in ROLE_VALUES])})"
-            ),
+            db.text(f"role IN ({_enum_values(ROLE_VALUES)})"),
             name="ck_users_role_valid",
         ),
     )
@@ -84,9 +89,7 @@ class Enrollment(db.Model):
     __table_args__ = (
         db.UniqueConstraint("user_id", "course_id", name="uq_enrollments_user_course"),
         db.CheckConstraint(
-            db.text(
-                f"status IN ({', '.join([f'\\'{value}\\'' for value in ENROLLMENT_STATUS_VALUES])})"
-            ),
+            db.text(f"status IN ({_enum_values(ENROLLMENT_STATUS_VALUES)})"),
             name="ck_enrollments_status_valid",
         ),
         db.Index("ix_enrollments_user_id", "user_id"),
@@ -110,13 +113,12 @@ class Payment(db.Model):
     __tablename__ = "payments"
     __table_args__ = (
         db.CheckConstraint(
-            db.text(
-                f"status IN ({', '.join([f'\\'{value}\\'' for value in PAYMENT_STATUS_VALUES])})"
-            ),
+            db.text(f"status IN ({_enum_values(PAYMENT_STATUS_VALUES)})"),
             name="ck_payments_status_valid",
         ),
         db.Index("ix_payments_user_id", "user_id"),
         db.Index("ix_payments_course_id", "course_id"),
+        db.Index("ix_payments_order_id", "order_id"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -126,9 +128,38 @@ class Payment(db.Model):
     status = db.Column(db.String(50), nullable=False, default=PAYMENT_STATUS_VALUES[0])
     provider_payment_id = db.Column(db.String(255), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    order_id = db.Column(db.Integer, db.ForeignKey("payment_orders.id"), nullable=True)
 
     user = db.relationship("User", back_populates="payments")
     course = db.relationship("Course", back_populates="payments")
+    order = db.relationship("PaymentOrder", back_populates="payments")
 
     def __repr__(self) -> str:
         return f"<Payment {self.id} status={self.status}>"
+
+
+class PaymentOrder(db.Model):
+    __tablename__ = "payment_orders"
+    __table_args__ = (
+        UniqueConstraint("provider_order_id", name="uq_payment_orders_provider_order"),
+        CheckConstraint(
+            db.text(f"status IN ({_enum_values(PAYMENT_ORDER_STATUS_VALUES)})"),
+            name="ck_payment_orders_status_valid",
+        ),
+        Index("ix_payment_orders_user_id", "user_id"),
+        Index("ix_payment_orders_course_id", "course_id"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    provider_order_id = db.Column(db.String(255), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    course_id = db.Column(db.Integer, db.ForeignKey("courses.id"), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    currency = db.Column(db.String(10), nullable=False, default="INR")
+    status = db.Column(db.String(50), nullable=False, default=PAYMENT_ORDER_STATUS_VALUES[0])
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    payments = db.relationship("Payment", back_populates="order")
+
+    def __repr__(self) -> str:
+        return f"<PaymentOrder {self.provider_order_id} status={self.status}>"
