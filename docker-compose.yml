@@ -3,49 +3,50 @@ version: "3.9"
 services:
   postgres:
     image: postgres:16
-    container_name: course_postgres
-    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: app_db
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   backend:
-    image: python:3.12-slim
-    container_name: course_backend
+    build:
+      context: ./backend
     working_dir: /app/backend
-    command: >
-      sh -c "pip install --no-cache-dir -r requirements.txt &&
-             flask --app app run --host=0.0.0.0 --port=5000 --debug"
+    command: flask run --host=0.0.0.0 --port=5000
     env_file:
       - ./backend/.env
     environment:
-      - PYTHONPATH=/app/backend
-      - FLASK_RUN_EXTRA_FILES=/app/backend
+      FLASK_APP: app
+      PYTHONPATH: /app/backend
     volumes:
       - ./backend:/app/backend
       - ./db:/app/db
     ports:
       - "5000:5000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   frontend:
     image: node:20
-    container_name: course_frontend
     working_dir: /app
-    command: >
-      sh -c "npm install && npm run dev -- --host --port 5173"
+    command: npm run dev -- --host --port 5173
     environment:
-      - VITE_API_URL=http://localhost:5000
-    ports:
-      - "5173:5173"
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:5000}
     volumes:
       - ./:/app
+    ports:
+      - "5173:5173"
     depends_on:
       - backend
 
