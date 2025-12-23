@@ -36,6 +36,20 @@ npm i
 npm run dev
 ```
 
+## Running with Docker Compose
+
+1. Duplicate `backend/.env.example` to `backend/.env` and adjust values as needed.
+2. Start all services together:
+
+```sh
+make compose-up
+```
+
+Service URLs:
+
+- Frontend: http://localhost:5173
+- API: http://localhost:5000
+
 **Edit a file directly in GitHub**
 
 - Navigate to the desired file(s).
