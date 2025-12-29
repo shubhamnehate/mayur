@@ -67,6 +67,14 @@ const Navigation = () => {
                     Browse Courses
                   </Link>
                 </DropdownMenuItem>
+                {(hasRole('instructor') || hasRole('admin')) && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/instructor" className="flex items-center gap-2 cursor-pointer">
+                      <GraduationCap className="h-4 w-4" />
+                      Instructor
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 {(hasRole('admin') || hasRole('instructor')) && (
                   <>
                     <DropdownMenuSeparator />
@@ -114,12 +122,17 @@ const Navigation = () => {
               ))}
               {user ? (
                 <>
-                  <Link to="/dashboard" className="text-lg font-medium transition-colors hover:text-primary">
-                    My Dashboard
+                <Link to="/dashboard" className="text-lg font-medium transition-colors hover:text-primary">
+                  My Dashboard
+                </Link>
+                {(hasRole('admin') || hasRole('instructor')) && (
+                  <Link to="/instructor" className="text-lg font-medium transition-colors hover:text-primary">
+                    Instructor
                   </Link>
-                  {(hasRole('admin') || hasRole('instructor')) && (
-                    <Link to="/admin" className="text-lg font-medium transition-colors hover:text-primary">
-                      Admin Panel
+                )}
+                {(hasRole('admin') || hasRole('instructor')) && (
+                  <Link to="/admin" className="text-lg font-medium transition-colors hover:text-primary">
+                    Admin Panel
                     </Link>
                   )}
                   <Button onClick={handleSignOut} variant="outline">
