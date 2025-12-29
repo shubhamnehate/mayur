@@ -84,6 +84,9 @@ class Course(db.Model):
     lessons = db.relationship(
         "Lesson", back_populates="course", cascade="all, delete-orphan"
     )
+    classwork_items = db.relationship(
+        "Classwork", back_populates="course", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Course {self.title}>"
@@ -224,3 +227,45 @@ class VideoClip(db.Model):
 
     def __repr__(self) -> str:
         return f"<VideoClip {self.id} lesson={self.lesson_id}>"
+
+
+class Classwork(db.Model):
+    __tablename__ = "classwork"
+    __table_args__ = (Index("ix_classwork_course_id", "course_id"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.Integer, db.ForeignKey("courses.id"), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    due_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    course = db.relationship("Course", back_populates="classwork_items")
+
+    def __repr__(self) -> str:
+        return f"<Classwork {self.id} course={self.course_id}>"
+
+
+class Attachment(db.Model):
+    __tablename__ = "attachments"
+    __table_args__ = (
+        Index("ix_attachments_created_by", "created_by_user_id"),
+        Index("ix_attachments_storage_provider", "storage_provider"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), nullable=False)
+    url = db.Column(db.String(1024), nullable=False)
+    storage_provider = db.Column(db.String(50), nullable=False, default="local")
+    content_type = db.Column(db.String(255), nullable=True)
+    size_bytes = db.Column(db.Integer, nullable=True)
+    created_by_user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=True, index=True
+    )
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Attachment {self.filename} storage={self.storage_provider}>"
