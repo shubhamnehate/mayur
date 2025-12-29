@@ -2,16 +2,39 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Clock, Users, BookOpen, ArrowLeft, CreditCard, Building2, Mail, IndianRupee } from "lucide-react";
+import { CheckCircle2, Clock, Users, BookOpen, ArrowLeft, CreditCard, Building2, Mail } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { Course, fetchCourseBySlug } from "@/api/courses";
+import { Course, fetchCourseAccess, fetchCourseBySlug } from "@/api/courses";
 import { createEnrollment } from "@/api/enrollments";
-import { initiatePayment } from "@/api/payments";
+import { createPaymentOrder, verifyPayment } from "@/api/payments";
+
+interface RazorpayHandlerResponse {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+}
+
+interface RazorpayFailureResponse {
+  error?: {
+    description?: string;
+  };
+}
+
+type RazorpayCheckout = {
+  open: () => void;
+  on: (event: string, handler: (response: RazorpayFailureResponse) => void) => void;
+};
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => RazorpayCheckout;
+  }
+}
 
 interface StaticCourseInfo {
   title: string;
@@ -256,13 +279,27 @@ const CourseDetail = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [enrolling, setEnrolling] = useState(false);
+  const [enrolled, setEnrolled] = useState(false);
   const [dbCourse, setDbCourse] = useState<Course | null>(null);
   const course = courseId ? coursesData[courseId] : null;
 
   const getErrorMessage = (error: unknown, fallback: string) =>
     error instanceof Error ? error.message : fallback;
 
-  // Fetch course from database for Stripe links
+  const loadRazorpayScript = async () => {
+    if (window.Razorpay) return true;
+
+    return new Promise<boolean>((resolve) => {
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  // Fetch course metadata from backend
   useEffect(() => {
     const fetchDbCourse = async () => {
       if (!courseId) return;
@@ -276,7 +313,22 @@ const CourseDetail = () => {
     fetchDbCourse();
   }, [courseId]);
 
-  const handleEnroll = async (paymentMethod: 'stripe_eur' | 'stripe_inr' | 'bank_transfer') => {
+  useEffect(() => {
+    const fetchAccess = async () => {
+      if (!dbCourse || !user) return;
+
+      try {
+        const access = await fetchCourseAccess(dbCourse.id);
+        setEnrolled(access.enrolled);
+      } catch (error) {
+        console.error("Failed to fetch course access", error);
+      }
+    };
+
+    fetchAccess();
+  }, [dbCourse, user]);
+
+  const handleRazorpayCheckout = async () => {
     if (!user) {
       toast({
         title: "Please sign in",
@@ -287,81 +339,136 @@ const CourseDetail = () => {
       return;
     }
 
+    if (!dbCourse) {
+      toast({
+        title: "Contact for Enrollment",
+        description: "Please contact us at cloudbee.robotics@gmail.com to complete your enrollment.",
+      });
+      return;
+    }
+
     setEnrolling(true);
     try {
-      if (!dbCourse) {
-        toast({
-          title: "Contact for Enrollment",
-          description: "Please contact us at cloudbee.robotics@gmail.com to complete your enrollment.",
-        });
-        return;
+      const loaded = await loadRazorpayScript();
+      if (!loaded) {
+        throw new Error("Payment provider failed to load. Please try again.");
       }
 
-      await createEnrollment({
+      const { order, key } = await createPaymentOrder({
         courseId: dbCourse.id,
-        paymentMethod,
-        email: user.email ?? undefined,
+        userId: user.id,
       });
 
-      if (paymentMethod !== 'bank_transfer') {
-        const payment = await initiatePayment({
-          courseId: dbCourse.id,
-          paymentMethod,
-        });
-
-        if (payment.redirectUrl) {
-          toast({
-            title: "Redirecting to Payment",
-            description: "You will be redirected to complete your payment.",
-          });
-          window.open(payment.redirectUrl, '_blank');
-          return;
-        }
-
-        if (payment.message) {
-          toast({
-            title: "Payment Update",
-            description: payment.message,
-          });
-        }
-
-        if (paymentMethod === 'stripe_eur' && dbCourse?.stripePaymentLinkEur) {
-          toast({
-            title: "Redirecting to Payment",
-            description: "You will be redirected to complete your payment.",
-          });
-          window.open(dbCourse.stripePaymentLinkEur, '_blank');
-          return;
-        }
-
-        if (paymentMethod === 'stripe_inr' && dbCourse?.stripePaymentLinkInr) {
-          toast({
-            title: "Redirecting to Payment",
-            description: "You will be redirected to complete your payment.",
-          });
-          window.open(dbCourse.stripePaymentLinkInr, '_blank');
-          return;
-        }
-
-        toast({
-          title: "Payment Link Not Available",
-          description: "Please use bank transfer or contact us at cloudbee.robotics@gmail.com",
-        });
-        return;
+      if (!order.orderId) {
+        throw new Error("Unable to start checkout. Please try again.");
       }
 
-      toast({
-        title: "Enrollment Request Submitted",
-        description: "Bank details have been sent to your email. Your access will be activated within 24 hours of payment confirmation.",
+      const checkout = new window.Razorpay({
+        key,
+        amount: order.amount ? Math.round(order.amount * 100) : undefined,
+        currency: order.currency ?? "INR",
+        name: course?.title ?? "Course Enrollment",
+        description: course?.subtitle ?? course?.description,
+        order_id: order.orderId,
+        prefill: {
+          email: user.email ?? undefined,
+          name: user.full_name ?? user.email ?? "Student",
+        },
+        handler: async (response: RazorpayHandlerResponse) => {
+          try {
+            await verifyPayment({
+              orderId: response.razorpay_order_id,
+              paymentId: response.razorpay_payment_id,
+              signature: response.razorpay_signature,
+              userId: user.id,
+            });
+            setEnrolled(true);
+            toast({
+              title: "Enrollment confirmed",
+              description: "Payment verified and course access granted.",
+            });
+          } catch (error) {
+            toast({
+              title: "Verification failed",
+              description: getErrorMessage(error, "Unable to verify payment"),
+              variant: "destructive",
+            });
+          } finally {
+            setEnrolling(false);
+          }
+        },
+        modal: {
+          ondismiss: () => setEnrolling(false),
+        },
       });
+
+      checkout.on("payment.failed", (response: RazorpayFailureResponse) => {
+        toast({
+          title: "Payment failed",
+          description: response.error?.description ?? "Please try again or use another method.",
+          variant: "destructive",
+        });
+        setEnrolling(false);
+      });
+
+      checkout.open();
     } catch (error) {
       toast({
         title: "Enrollment Failed",
         description: getErrorMessage(error, "Enrollment failed"),
         variant: "destructive"
       });
-    } finally {
       setEnrolling(false);
+    }
+  };
+
+  const handleEnroll = async (paymentMethod: 'razorpay' | 'bank_transfer') => {
+    if (!user) {
+      toast({
+        title: "Please sign in",
+        description: "You need to be signed in to enroll in a course.",
+        variant: "destructive"
+      });
+      navigate("/auth");
+      return;
+    }
+
+    try {
+      if (paymentMethod === 'bank_transfer') {
+        setEnrolling(true);
+        if (!dbCourse) {
+          toast({
+            title: "Contact for Enrollment",
+            description: "Please contact us at cloudbee.robotics@gmail.com to complete your enrollment.",
+          });
+          setEnrolling(false);
+          return;
+        }
+
+        await createEnrollment({
+          courseId: dbCourse.id,
+          paymentMethod,
+          email: user.email ?? undefined,
+        });
+
+        toast({
+          title: "Enrollment Request Submitted",
+          description: "Bank details have been sent to your email. Your access will be activated within 24 hours of payment confirmation.",
+        });
+        setEnrolling(false);
+        return;
+      }
+
+      await handleRazorpayCheckout();
+    } catch (error) {
+      toast({
+        title: "Enrollment Failed",
+        description: getErrorMessage(error, "Enrollment failed"),
+        variant: "destructive"
+      });
+      if (paymentMethod === 'bank_transfer') {
+        setEnrolling(false);
+      }
     }
   };
 
@@ -441,8 +548,8 @@ const CourseDetail = () => {
                   <CardContent className="space-y-4">
                     <Dialog>
                       <DialogTrigger asChild>
-                        <Button className="w-full gradient-primary text-lg py-6" disabled={enrolling}>
-                          {enrolling ? "Processing..." : "Enroll Now"}
+                        <Button className="w-full gradient-primary text-lg py-6" disabled={enrolling || enrolled}>
+                          {enrolled ? "Enrolled" : enrolling ? "Processing..." : "Enroll Now"}
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="sm:max-w-lg bg-background">
@@ -453,50 +560,24 @@ const CourseDetail = () => {
                           </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 mt-4">
-                          {/* International Stripe Payments (EUR) */}
-                          <Card className={`p-4 ${dbCourse?.stripePaymentLinkEur ? 'cursor-pointer hover:border-primary' : 'opacity-60'} transition-colors`}>
+                          {/* Razorpay */}
+                          <Card className="p-4 transition-colors cursor-pointer hover:border-primary">
                             <div className="flex items-start gap-3">
                               <CreditCard className="w-6 h-6 text-primary mt-1" />
-                              <div className="flex-1">
-                                <h4 className="font-semibold flex items-center gap-2">
-                                  Pay with Card (International)
-                                  {!dbCourse?.stripePaymentLinkEur && (
-                                    <Badge variant="secondary" className="text-xs">Coming Soon</Badge>
-                                  )}
-                                </h4>
-                                <p className="text-sm text-muted-foreground">{course.priceEUR} - Secure payment via Stripe</p>
-                                <p className="text-xs text-muted-foreground mt-1">Credit/Debit cards, Apple Pay, Google Pay</p>
-                                {dbCourse?.stripePaymentLinkEur && (
-                                  <Button 
-                                    className="w-full mt-3 gradient-primary" 
-                                    onClick={() => handleEnroll('stripe_eur')}
-                                    disabled={enrolling}
-                                  >
-                                    Pay {course.priceEUR}
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          </Card>
-
-                          {/* Indian Stripe Payments (INR) */}
-                          <Card className={`p-4 ${dbCourse?.stripePaymentLinkInr ? 'cursor-pointer hover:border-primary' : ''} transition-colors`}>
-                            <div className="flex items-start gap-3">
-                              <IndianRupee className="w-6 h-6 text-primary mt-1" />
-                              <div className="flex-1">
-                                <h4 className="font-semibold">Pay with Card (India)</h4>
-                                <p className="text-sm text-muted-foreground">{course.priceINR} - Secure payment via Stripe</p>
-                                {dbCourse?.stripePaymentLinkInr ? (
-                                  <Button 
-                                    className="w-full mt-3 gradient-primary" 
-                                    onClick={() => handleEnroll('stripe_inr')}
-                                    disabled={enrolling}
-                                  >
-                                    Pay {course.priceINR}
-                                  </Button>
-                                ) : (
-                                  <Badge variant="secondary" className="text-xs mt-2">Coming Soon</Badge>
-                                )}
+                              <div className="flex-1 space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-semibold">Pay with Razorpay</h4>
+                                  {enrolled && <Badge variant="outline">Enrolled</Badge>}
+                                </div>
+                                <p className="text-sm text-muted-foreground">{course.priceINR} - Cards, UPI, Netbanking</p>
+                                <p className="text-xs text-muted-foreground">Secure checkout powered by Razorpay</p>
+                                <Button 
+                                  className="w-full mt-3 gradient-primary" 
+                                  onClick={() => handleEnroll('razorpay')}
+                                  disabled={enrolling || enrolled}
+                                >
+                                  {enrolled ? "Enrolled" : `Pay ${course.priceINR}`}
+                                </Button>
                               </div>
                             </div>
                           </Card>
@@ -515,7 +596,7 @@ const CourseDetail = () => {
                                   className="w-full" 
                                   variant="outline"
                                   onClick={() => handleEnroll('bank_transfer')}
-                                  disabled={enrolling}
+                                  disabled={enrolling || enrolled}
                                 >
                                   Request Enrollment
                                 </Button>

@@ -63,8 +63,10 @@ class User(db.Model):
 
 class Course(db.Model):
     __tablename__ = "courses"
+    __table_args__ = (Index("ix_courses_slug", "slug"),)
 
     id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(255), unique=True, nullable=True)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     price = db.Column(db.Numeric(10, 2), nullable=False, default=0)
@@ -79,6 +81,9 @@ class Course(db.Model):
     instructor = db.relationship("User", back_populates="courses")
     enrollments = db.relationship("Enrollment", back_populates="course")
     payments = db.relationship("Payment", back_populates="course")
+    lessons = db.relationship(
+        "Lesson", back_populates="course", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Course {self.title}>"
@@ -163,3 +168,59 @@ class PaymentOrder(db.Model):
 
     def __repr__(self) -> str:
         return f"<PaymentOrder {self.provider_order_id} status={self.status}>"
+
+
+class Lesson(db.Model):
+    __tablename__ = "lessons"
+    __table_args__ = (
+        Index("ix_lessons_course_id", "course_id"),
+        Index("ix_lessons_is_free_preview", "is_free_preview"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(
+        db.Integer, db.ForeignKey("courses.id"), nullable=False, index=True
+    )
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    video_url = db.Column(db.String(1024), nullable=True)
+    colab_notebook_url = db.Column(db.String(1024), nullable=True)
+    notes_content = db.Column(db.Text, nullable=True)
+    order_index = db.Column(db.Integer, nullable=False, default=0)
+    is_free_preview = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    course = db.relationship("Course", back_populates="lessons")
+    clips = db.relationship(
+        "VideoClip", back_populates="lesson", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Lesson {self.id} course={self.course_id}>"
+
+
+class VideoClip(db.Model):
+    __tablename__ = "video_clips"
+    __table_args__ = (
+        Index("ix_video_clips_lesson_id", "lesson_id"),
+        Index("ix_video_clips_order_index", "order_index"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    lesson_id = db.Column(
+        db.Integer, db.ForeignKey("lessons.id"), nullable=False, index=True
+    )
+    title = db.Column(db.String(255), nullable=False)
+    start_seconds = db.Column(db.Integer, nullable=False, default=0)
+    end_seconds = db.Column(db.Integer, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    order_index = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    lesson = db.relationship("Lesson", back_populates="clips")
+
+    def __repr__(self) -> str:
+        return f"<VideoClip {self.id} lesson={self.lesson_id}>"
