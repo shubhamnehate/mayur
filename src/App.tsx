@@ -11,6 +11,12 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import AdminPanel from "./pages/AdminPanel";
 import AdminCourseEditor from "./pages/AdminCourseEditor";
+import InstructorDashboard from "./pages/InstructorDashboard";
+import InstructorCourses from "./pages/InstructorCourses";
+import CourseEditor from "./pages/CourseEditor";
+import LessonsManager from "./pages/LessonsManager";
+import ClassworkManager from "./pages/ClassworkManager";
+import Uploads from "./pages/Uploads";
 import LearnCourse from "./pages/LearnCourse";
 import NotFound from "./pages/NotFound";
 import AITutor from "./components/AITutor";
@@ -69,6 +75,54 @@ const App = () => (
               element={
                 <ProtectedRoute roles={["admin", "instructor"]}>
                   <AdminCourseEditor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor"
+              element={
+                <ProtectedRoute roles={["instructor", "admin"]}>
+                  <InstructorDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/courses"
+              element={
+                <ProtectedRoute roles={["instructor", "admin"]}>
+                  <InstructorCourses />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/course/:courseSlug"
+              element={
+                <ProtectedRoute roles={["instructor", "admin"]}>
+                  <CourseEditor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/lessons"
+              element={
+                <ProtectedRoute roles={["instructor", "admin"]}>
+                  <LessonsManager />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/classwork"
+              element={
+                <ProtectedRoute roles={["instructor", "admin"]}>
+                  <ClassworkManager />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/uploads"
+              element={
+                <ProtectedRoute roles={["instructor", "admin"]}>
+                  <Uploads />
                 </ProtectedRoute>
               }
             />

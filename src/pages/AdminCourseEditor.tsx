@@ -12,10 +12,54 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { toast } from '@/hooks/use-toast';
 import { ArrowLeft, Save, Plus, Trash2, GripVertical, ExternalLink } from 'lucide-react';
-import { Chapter, Course, Lesson, fetchCourseBySlug, updateCourse, createChapter, updateChapter, deleteChapter } from '@/api/courses';
-import { createLesson, deleteLesson, updateLesson } from '@/api/lessons';
+import { Chapter, Course, CourseContent, Lesson, createChapter, deleteChapter, fetchCourseBySlug, updateChapter, updateCourse } from '@/api/courses';
+import { createLesson, deleteLesson, LessonPayload, updateLesson } from '@/api/lessons';
 
-const AdminCourseEditor = () => {
+export interface CourseEditorApi {
+  fetchCourseBySlug: (slug: string) => Promise<CourseContent>;
+  updateCourse: (courseId: string, payload: Partial<Course>) => Promise<Course>;
+  createChapter: (courseId: string, payload: Partial<Chapter>) => Promise<Chapter>;
+  updateChapter: (chapterId: string, payload: Partial<Chapter>) => Promise<Chapter>;
+  deleteChapter: (chapterId: string) => Promise<void>;
+  createLesson: (chapterId: string, payload: LessonPayload) => Promise<Lesson>;
+  updateLesson: (lessonId: string, payload: LessonPayload) => Promise<Lesson>;
+  deleteLesson: (lessonId: string) => Promise<void>;
+}
+
+const defaultApi: CourseEditorApi = {
+  fetchCourseBySlug,
+  updateCourse: (courseId, payload) =>
+    updateCourse(courseId, {
+      title: payload.title,
+      shortDescription: payload.shortDescription,
+      fullDescription: payload.fullDescription,
+      priceEur: payload.priceEur,
+      priceInr: payload.priceInr,
+      googleClassroomUrl: payload.googleClassroomUrl,
+      thumbnailUrl: payload.thumbnailUrl,
+      isPublished: payload.isPublished,
+      stripePaymentLinkEur: payload.stripePaymentLinkEur,
+      stripePaymentLinkInr: payload.stripePaymentLinkInr,
+    }),
+  createChapter: (courseId, payload) =>
+    createChapter(courseId, {
+      title: payload.title,
+      description: payload.description,
+      orderIndex: payload.orderIndex,
+    }),
+  updateChapter: (chapterId, payload) =>
+    updateChapter(chapterId, {
+      title: payload.title,
+      description: payload.description,
+      orderIndex: payload.orderIndex,
+    }),
+  deleteChapter,
+  createLesson,
+  updateLesson,
+  deleteLesson,
+};
+
+const AdminCourseEditor: React.FC<{ api?: CourseEditorApi }> = ({ api = defaultApi }) => {
   const { courseSlug } = useParams();
   const navigate = useNavigate();
   const { user, loading, hasRole } = useAuth();
@@ -50,7 +94,7 @@ const AdminCourseEditor = () => {
       if (!courseSlug) return;
 
       try {
-        const content = await fetchCourseBySlug(courseSlug);
+        const content = await api.fetchCourseBySlug(courseSlug);
         setCourse(content as Course);
         setChapters(content.chapters || []);
 
@@ -74,14 +118,14 @@ const AdminCourseEditor = () => {
     };
 
     fetchCourse();
-  }, [courseSlug]);
+  }, [api, courseSlug]);
 
   const handleSaveCourse = async () => {
     if (!course?.id) return;
     setSaving(true);
 
     try {
-      const updated = await updateCourse(course.id, {
+      const updated = await api.updateCourse(course.id, {
         title,
         shortDescription,
         fullDescription,
@@ -114,7 +158,7 @@ const AdminCourseEditor = () => {
     if (!course?.id) return;
 
     try {
-      const newChapter = await createChapter(course.id, {
+      const newChapter = await api.createChapter(course.id, {
         title: 'New Chapter',
         description: '',
         orderIndex: chapters.length
@@ -133,7 +177,7 @@ const AdminCourseEditor = () => {
 
   const handleUpdateChapter = async (chapterId: string, updates: Partial<Chapter>) => {
     try {
-      const updated = await updateChapter(chapterId, {
+      const updated = await api.updateChapter(chapterId, {
         title: updates.title,
         description: updates.description,
         orderIndex: updates.orderIndex,
@@ -153,7 +197,7 @@ const AdminCourseEditor = () => {
 
   const handleDeleteChapter = async (chapterId: string) => {
     try {
-      await deleteChapter(chapterId);
+      await api.deleteChapter(chapterId);
       setChapters(chapters.filter(ch => ch.id !== chapterId));
       toast({ title: 'Chapter deleted' });
     } catch (error) {
@@ -170,7 +214,7 @@ const AdminCourseEditor = () => {
     if (!chapter) return;
 
     try {
-      const newLesson = await createLesson(chapterId, {
+      const newLesson = await api.createLesson(chapterId, {
         title: 'New Lesson',
         description: '',
         videoUrl: '',
@@ -196,7 +240,7 @@ const AdminCourseEditor = () => {
 
   const handleUpdateLesson = async (lessonId: string, chapterId: string, updates: Partial<Lesson>) => {
     try {
-      const updated = await updateLesson(lessonId, {
+      const updated = await api.updateLesson(lessonId, {
         title: updates.title,
         description: updates.description,
         videoUrl: updates.videoUrl,
@@ -221,7 +265,7 @@ const AdminCourseEditor = () => {
 
   const handleDeleteLesson = async (lessonId: string, chapterId: string) => {
     try {
-      await deleteLesson(lessonId);
+      await api.deleteLesson(lessonId);
 
       setChapters(chapters.map(ch => 
         ch.id === chapterId 
