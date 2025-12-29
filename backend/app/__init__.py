@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify
 from flask_jwt_extended import JWTManager
 
-from .db import init_db
+from .db import db, init_db
 
 jwt = JWTManager()
 
@@ -33,13 +33,17 @@ def create_app() -> Flask:
     def healthcheck():
         return jsonify({"status": "ok"})
 
-    from .routes import auth, courses, instructor, payments, uploads
+    from .routes import auth, courses, instructor, lessons, payments, uploads
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(courses.bp)
     app.register_blueprint(instructor.bp)
+    app.register_blueprint(lessons.bp)
     app.register_blueprint(payments.bp)
     app.register_blueprint(uploads.bp)
+
+    with app.app_context():
+        db.create_all()
 
     return app
 

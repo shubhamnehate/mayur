@@ -9,7 +9,7 @@ import QuizComponent from '@/components/learn/QuizComponent';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, ChevronRight, Menu, X } from 'lucide-react';
-import { Chapter as CourseChapter, Course, Lesson as CourseLesson } from '@/api/courses';
+import { Chapter as CourseChapter, Course, Lesson as CourseLesson, fetchCourseAccess } from '@/api/courses';
 import { fetchLearningContent, markLessonComplete, Quiz as CourseQuiz } from '@/api/classwork';
 
 type LessonWithProgress = CourseLesson & { completed: boolean };
@@ -27,6 +27,8 @@ const LearnCourse = () => {
   const [showQuiz, setShowQuiz] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loadingContent, setLoadingContent] = useState(true);
+  const [allowedLessonIds, setAllowedLessonIds] = useState<string[]>([]);
+  const [enrolled, setEnrolled] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -41,27 +43,43 @@ const LearnCourse = () => {
       try {
         const content = await fetchLearningContent(courseSlug);
 
-        if (!content.enrolled) {
+        const access = await fetchCourseAccess(content.course.id);
+
+        if (!access.enrolled && access.allowedLessonIds.length === 0) {
+          setLoadingContent(false);
           navigate('/dashboard');
           return;
         }
 
-        const chaptersWithQuiz = (content.chapters || []).map((chapter: CourseChapter) => ({
-          ...chapter,
-          lessons: chapter.lessons.map((lesson: CourseLesson) => ({
-            ...lesson,
-            completed: lesson.completed ?? false,
-          })) as LessonWithProgress[],
-          quiz: chapter.quizId
-            ? {
-                id: chapter.quizId,
-                title: chapter.quizTitle || 'Chapter Quiz',
-                passingScore: chapter.passingScore ?? 70,
-              }
-            : null,
-        })) as ChapterWithQuiz[];
+        const chaptersWithQuiz = (content.chapters || [])
+          .map((chapter: CourseChapter) => {
+            const lessonsWithProgress = chapter.lessons
+              .map((lesson: CourseLesson) => ({
+                ...lesson,
+                completed: lesson.completed ?? false,
+              })) as LessonWithProgress[];
+
+            const accessibleLessons = lessonsWithProgress.filter(
+              lesson => access.enrolled || access.allowedLessonIds.includes(lesson.id)
+            );
+
+            return {
+              ...chapter,
+              lessons: accessibleLessons,
+              quiz: chapter.quizId
+                ? {
+                    id: chapter.quizId,
+                    title: chapter.quizTitle || 'Chapter Quiz',
+                    passingScore: chapter.passingScore ?? 70,
+                  }
+                : null,
+            };
+          })
+          .filter(chapter => chapter.lessons.length > 0 || chapter.quiz) as ChapterWithQuiz[];
 
         setCourse(content.course);
+        setAllowedLessonIds(access.allowedLessonIds);
+        setEnrolled(access.enrolled);
         setChapters(chaptersWithQuiz);
         
         if (chaptersWithQuiz.length > 0 && chaptersWithQuiz[0].lessons.length > 0) {
@@ -123,6 +141,7 @@ const LearnCourse = () => {
 
   const getAllLessons = () => chapters.flatMap(c => c.lessons);
   const currentLessonIndex = getAllLessons().findIndex(l => l.id === currentLesson?.id);
+  const canAccessCurrentLesson = currentLesson ? (enrolled || allowedLessonIds.includes(currentLesson.id)) : false;
 
   if (loading || loadingContent) {
     return (
@@ -183,6 +202,7 @@ const LearnCourse = () => {
                 <VideoPlayer
                   videoUrl={currentLesson.videoUrl || ''}
                   lessonId={currentLesson.id}
+                  canAccess={canAccessCurrentLesson}
                 />
               )}
 
@@ -206,7 +226,7 @@ const LearnCourse = () => {
                 </Button>
 
                 {!currentLesson.completed && (
-                  <Button onClick={handleLessonComplete} className="gradient-primary">
+                  <Button onClick={handleLessonComplete} className="gradient-primary" disabled={!enrolled}>
                     Mark Complete
                   </Button>
                 )}

@@ -9,9 +9,10 @@ import { fetchVideoClips, VideoClip } from '@/api/lessons';
 interface VideoPlayerProps {
   videoUrl: string;
   lessonId: string;
+  canAccess?: boolean;
 }
 
-const VideoPlayer = ({ videoUrl, lessonId }: VideoPlayerProps) => {
+const VideoPlayer = ({ videoUrl, lessonId, canAccess = true }: VideoPlayerProps) => {
   const [clips, setClips] = useState<VideoClip[]>([]);
   const [currentClipIndex, setCurrentClipIndex] = useState(0);
 
@@ -23,8 +24,13 @@ const VideoPlayer = ({ videoUrl, lessonId }: VideoPlayerProps) => {
       }
     };
 
+    if (!canAccess) {
+      setClips([]);
+      return;
+    }
+
     fetchClips();
-  }, [lessonId]);
+  }, [lessonId, canAccess]);
 
   // Convert Google Drive URL to embeddable format
   const getEmbedUrl = (url: string) => {
@@ -45,6 +51,16 @@ const VideoPlayer = ({ videoUrl, lessonId }: VideoPlayerProps) => {
 
   const currentClip = clips[currentClipIndex];
   const embedUrl = getEmbedUrl(videoUrl);
+
+  if (!canAccess) {
+    return (
+      <div className="space-y-4">
+        <div className="aspect-video bg-muted rounded-lg flex items-center justify-center text-muted-foreground">
+          Enroll to watch this lesson.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

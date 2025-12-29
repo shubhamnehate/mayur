@@ -178,7 +178,7 @@ const buildChapterPayload = (payload: ChapterPayload) => ({
 
 export const fetchCourseBySlug = async (slug: string): Promise<CourseContent> => {
   const { data } = await client.get<CourseApiResponse | { course: CourseApiResponse; chapters?: ChapterApiResponse[] }>(
-    `/api/courses/${slug}`
+    `/api/courses/slug/${slug}`
   );
 
   const course = 'course' in data ? data.course : data;
@@ -227,6 +227,19 @@ export const getCourseContent = async (courseId: string): Promise<Chapter[]> => 
   );
   const chapters = Array.isArray(data) ? data : data.chapters ?? [];
   return chapters.map(normalizeChapter);
+};
+
+export const fetchCourseAccess = async (
+  courseId: string
+): Promise<{ enrolled: boolean; allowedLessonIds: string[] }> => {
+  const { data } = await client.get<{ enrolled?: boolean; allowed_lessons?: Array<string | number> }>(
+    `/api/courses/${courseId}/access`
+  );
+
+  return {
+    enrolled: data.enrolled ?? false,
+    allowedLessonIds: (data.allowed_lessons ?? []).map(String),
+  };
 };
 
 export { normalizeLesson as normalizeLessonFromApi, normalizeChapter as normalizeChapterFromApi, normalizeCourse as normalizeCourseFromApi };
