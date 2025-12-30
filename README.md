@@ -50,6 +50,10 @@ Service URLs:
 - Frontend: http://localhost:5173
 - API: http://localhost:5000
 
+## Production readiness
+
+Operational hardening steps, security controls, and manual payment/teacher onboarding workflows are documented in [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md).
+
 **Edit a file directly in GitHub**
 
 - Navigate to the desired file(s).
