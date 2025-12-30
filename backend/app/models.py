@@ -5,10 +5,11 @@ from sqlalchemy import CheckConstraint, Index, UniqueConstraint
 from .db import db
 
 
-ROLE_VALUES = ("student", "instructor", "admin")
+ROLE_VALUES = ("student", "teacher", "instructor", "admin")
 ENROLLMENT_STATUS_VALUES = ("active", "completed", "cancelled")
 PAYMENT_STATUS_VALUES = ("pending", "completed", "failed", "refunded")
 PAYMENT_ORDER_STATUS_VALUES = ("created", "paid", "failed")
+PAYMENT_METHOD_VALUES = ("razorpay", "manual")
 
 
 def _enum_values(values: tuple[str, ...]) -> str:
@@ -124,6 +125,10 @@ class Payment(db.Model):
             db.text(f"status IN ({_enum_values(PAYMENT_STATUS_VALUES)})"),
             name="ck_payments_status_valid",
         ),
+        db.CheckConstraint(
+            db.text(f"method IN ({_enum_values(PAYMENT_METHOD_VALUES)})"),
+            name="ck_payments_method_valid",
+        ),
         db.Index("ix_payments_user_id", "user_id"),
         db.Index("ix_payments_course_id", "course_id"),
         db.Index("ix_payments_order_id", "order_id"),
@@ -135,12 +140,16 @@ class Payment(db.Model):
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     status = db.Column(db.String(50), nullable=False, default=PAYMENT_STATUS_VALUES[0])
     provider_payment_id = db.Column(db.String(255), nullable=True, index=True)
+    method = db.Column(db.String(50), nullable=False, default=PAYMENT_METHOD_VALUES[0])
+    notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     order_id = db.Column(db.Integer, db.ForeignKey("payment_orders.id"), nullable=True)
+    recorded_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
 
     user = db.relationship("User", back_populates="payments")
     course = db.relationship("Course", back_populates="payments")
     order = db.relationship("PaymentOrder", back_populates="payments")
+    recorded_by = db.relationship("User", foreign_keys=[recorded_by_user_id])
 
     def __repr__(self) -> str:
         return f"<Payment {self.id} status={self.status}>"
