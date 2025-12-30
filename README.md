@@ -1,87 +1,56 @@
-# Welcome to your Lovable project
+# CloudBee Robotics Learning Platform
 
-## Project info
+A Vite + React frontend with a Flask backend for managing courses, enrollments, and payments.
 
-**URL**: https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e
+## Quick start
 
-## How can I edit this code?
+### Local development with npm
+1. Install dependencies: `npm install`.
+2. Run the frontend dev server: `npm run dev` (defaults to port 5173).
 
-There are several ways of editing your application.
+### Run everything with Docker Compose
+1. Copy environment files:
+   - `cp backend/.env.example backend/.env`
+   - (Optional) create a `.env` at the repo root to override `VITE_API_BASE_URL` for the frontend container.
+2. Start the stack:
+   ```sh
+   docker compose up --build
+   ```
+   - Frontend: http://localhost:5173
+   - API: http://localhost:5000
 
-**Use Lovable**
+## Environment variables
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e) and start prompting.
+### Frontend
+- `VITE_API_BASE_URL` – Base URL for API requests (defaults to `http://localhost:5000`).
+- `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` – Legacy AI Tutor function host/key. Remove once the Supabase flow is retired.
 
-Changes made via Lovable will be committed automatically to this repo.
+### Backend (`backend/.env`)
+- `FLASK_ENV` – Flask environment (e.g., `development`).
+- `DATABASE_URL` – SQLAlchemy database URL (Postgres DSN).
+- `JWT_SECRET` – Secret used by Flask-JWT-Extended to sign access tokens.
+- `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` – Razorpay API credentials used when creating orders and validating signatures.
 
-**Use your preferred IDE**
+## Auth flow (JWT)
+- Users register and login via `/api/auth/register` and `/api/auth/login`.
+- Successful login returns a JWT access token containing `roles` and `user_id` claims. Clients send it as `Authorization: Bearer <token>`.
+- `/api/auth/me` returns the authenticated user and claims; role-guarded endpoints rely on these claims (e.g., instructor-only routes).
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Payment flow (Razorpay)
+- Create an order with `/api/payments/create-order` (or `/api/payments/checkout` for backward compatibility). Requires a `course_id` and user context; returns a Razorpay order payload plus the publishable key.
+- Confirm payments with `/api/payments/verify`, which checks the Razorpay signature using `RAZORPAY_KEY_SECRET` and enrolls the learner.
+- Razorpay webhooks can call `/api/payments/webhook` to finalize payment status idempotently.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## Instructor endpoints
+Instructor-only routes (JWT with `role: instructor`) are namespaced under `/api/instructor`:
+- `GET /api/instructor/courses` – List courses for the instructor.
+- `POST /api/instructor/courses` – Create a course.
+- `PUT/DELETE /api/instructor/courses/:course_id` – Update or delete a course.
+- `POST /api/instructor/courses/:course_id/lessons` – Add a lesson.
+- `PUT/DELETE /api/instructor/courses/:course_id/lessons/:lesson_id` – Update or delete a lesson.
 
-Follow these steps:
+## Testing
+- End-to-end checkout: use Razorpay test keys (`RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`) and exercise the order ➜ payment ➜ verification flow against `/api/payments/create-order` and `/api/payments/verify`. Ensure enrollments are created after a successful signature.
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-## Running with Docker Compose
-
-1. Duplicate `backend/.env.example` to `backend/.env` and adjust values as needed.
-2. Start all services together:
-
-```sh
-make compose-up
-```
-
-Service URLs:
-
-- Frontend: http://localhost:5173
-- API: http://localhost:5000
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Legacy Supabase folder
+The `supabase/` directory is kept for historical assets and is no longer part of the active deployment path. Treat it as read-only until it can be archived or removed.
