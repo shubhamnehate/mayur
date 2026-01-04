@@ -56,9 +56,7 @@ Key values include database connection (`DATABASE_URL`), JWT secret, and Razorpa
 
 You can run the full stack with Docker Compose (PostgreSQL, Flask API, and Vite dev server):
 
-```sh
-make compose-up
-```
+Everything happens in your browser—no coding required once the servers are running.
 
 Services start on the following ports:
 - Frontend: `http://localhost:5173`
