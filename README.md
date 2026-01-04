@@ -1,91 +1,71 @@
-# Welcome to your Lovable project
+# CloudBee Robotics Learning Platform
 
-## Project info
+This project provides a Vite + React frontend with a Flask backend for managing courses, lessons, classwork, and instructor workflows. It includes instructor-facing dashboards, upload management, and a Supabase-backed AI tutor function.
 
-**URL**: https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e
+## Prerequisites
 
-## How can I edit this code?
+- Node.js 20+
+- npm 10+
+- Python 3.11+
+- (Optional) Docker and Docker Compose if you prefer a containerized setup
 
-There are several ways of editing your application.
+## Environment Variables
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+Create a root `.env` file by copying `.env.example`:
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+cp .env.example .env
 ```
 
-## Running with Docker Compose
+Populate the values for:
+- `VITE_API_BASE_URL`: URL where the Flask API is reachable (defaults to `http://localhost:5000`).
+- `VITE_RAZORPAY_KEY_ID`: Razorpay public key for client-side payments.
+- `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`: Supabase project URL and anon key used by the AI tutor edge function.
 
-1. Duplicate `backend/.env.example` to `backend/.env` and adjust values as needed.
-2. Start all services together:
+For the backend, copy `backend/.env.example` to `backend/.env` and set your secrets:
+
+```sh
+cp backend/.env.example backend/.env
+```
+
+Key values include database connection (`DATABASE_URL`), JWT secret, and Razorpay credentials.
+
+## Local Development
+
+1. Install frontend dependencies:
+   ```sh
+   npm install
+   ```
+2. Install backend dependencies:
+   ```sh
+   cd backend
+   pip install -r requirements.txt
+   cd ..
+   ```
+3. Start the backend (from `backend/`):
+   ```sh
+   FLASK_APP=app flask run --host=0.0.0.0 --port=5000
+   ```
+4. In a new terminal, start the frontend (from repo root):
+   ```sh
+   npm run dev -- --host --port 5173
+   ```
+5. Open the app at [http://localhost:5173](http://localhost:5173).
+
+## Docker Compose
+
+You can run the full stack with Docker Compose (PostgreSQL, Flask API, and Vite dev server):
 
 ```sh
 make compose-up
 ```
 
-Service URLs:
+Services start on the following ports:
+- Frontend: `http://localhost:5173`
+- API: `http://localhost:5000`
+- PostgreSQL: `localhost:5432`
 
-- Frontend: http://localhost:5173
-- API: http://localhost:5000
+## Additional Notes
 
-## Production readiness
-
-Operational hardening steps, security controls, and manual payment/teacher onboarding workflows are documented in [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md).
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- Architecture and environment details are documented in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+- Update the Supabase and Razorpay configuration to match your own accounts before deploying.
