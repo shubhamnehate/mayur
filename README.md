@@ -1,87 +1,99 @@
-# Welcome to your Lovable project
+# CloudBee Robotics Learning Platform
 
-## Project info
+This repository contains everything you need to run the CloudBee learning platform: a web app for browsing courses, managing lessons and classwork, and experimenting with an AI tutor. The steps below are written for people with **zero coding experience**. If you can copy and paste commands, you can get the site running.
 
-**URL**: https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e
+---
 
-## How can I edit this code?
+## What you need before starting
 
-There are several ways of editing your application.
+- A computer with **internet access**.
+- **Node.js 20+** and **npm 10+** (install from [nodejs.org](https://nodejs.org/) – choose the LTS option). These let you run the website.
+- **Python 3.11+** (already available on most systems) so the backend can start.
+- **Docker + Docker Compose** (optional) if you prefer a one-command setup.
 
-**Use Lovable**
+If you are unsure about any of these, follow the “Docker (easiest)” path below. It bundles everything for you.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e) and start prompting.
+---
 
-Changes made via Lovable will be committed automatically to this repo.
+## Quick start (choose one path)
 
-**Use your preferred IDE**
+### Path A: Docker (easiest)
+1. Install **Docker Desktop** from [docker.com](https://www.docker.com/products/docker-desktop/) and open it so it keeps running.
+2. Open a terminal (Command Prompt on Windows, Terminal on macOS/Linux) and move into the project folder:
+   ```sh
+   cd /path/to/mayur
+   ```
+3. Start everything (database, backend, and frontend) with one command:
+   ```sh
+   make compose-up
+   ```
+4. Wait until you see logs showing “backend” and “frontend” are ready. Then open your browser at **http://localhost:5173** to use the app.
+5. When you’re done, stop all services with:
+   ```sh
+   make compose-down
+   ```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Path B: Manual setup (still simple)
+1. **Install project tools** (run these in the project folder):
+   ```sh
+   npm install                # downloads website dependencies
+   cd backend && pip install -r requirements.txt && cd ..  # downloads backend dependencies
+   ```
+2. **Create your settings files** by copying the templates:
+   ```sh
+   cp .env.example .env
+   cp backend/.env.example backend/.env
+   ```
+   - These files store connection details. The defaults already point to running everything on your own computer.
+3. **Start the backend** (serves course data and uploads):
+   ```sh
+   cd backend
+   FLASK_APP=app flask run --host=0.0.0.0 --port=5000
+   ```
+   Leave this terminal open—it keeps the backend alive.
+4. **Start the website** in a new terminal window:
+   ```sh
+   cd /path/to/mayur
+   npm run dev -- --host --port 5173
+   ```
+5. Open your browser at **http://localhost:5173**. Changes you make in the app will refresh automatically.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+---
 
-Follow these steps:
+## Understanding the environment files (optional)
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+If you need to connect to external services, fill these values in the `.env` files you created:
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+- **Frontend (`.env`):**
+  - `VITE_API_BASE_URL` — where the backend is reachable (default works for local setup).
+  - `VITE_RAZORPAY_KEY_ID` — Razorpay public key if you enable payments.
+  - `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` — keys for the AI tutor feature.
+- **Backend (`backend/.env`):**
+  - `DATABASE_URL`, `JWT_SECRET_KEY`, and Razorpay credentials. These stay on your machine.
 
-# Step 3: Install the necessary dependencies.
-npm i
+You can leave these as-is for a local test drive; only adjust them when connecting to your own services.
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+---
 
-## Running with Docker Compose
+## Using the app
 
-1. Duplicate `backend/.env.example` to `backend/.env` and adjust values as needed.
-2. Start all services together:
+- **Instructor dashboard:** manage courses, lessons, classwork, and file uploads in one place.
+- **Course editor:** build or edit a course, attach lesson content, and link uploaded files.
+- **Uploads:** add images, PDFs, or other files; the app automatically reuses the file URLs inside lessons and classwork.
+- **AI tutor (Supabase):** if you provide Supabase keys, the tutor endpoint will be available for experiments.
 
-```sh
-make compose-up
-```
+Everything happens in your browser—no coding required once the servers are running.
 
-Service URLs:
+---
 
-- Frontend: http://localhost:5173
-- API: http://localhost:5000
+## Troubleshooting
 
-**Edit a file directly in GitHub**
+- If a command is not found, confirm you installed Node.js, Python, or Docker as listed above.
+- If ports 5000 or 5173 are busy, stop other apps using those ports or change the port numbers in the start commands.
+- To restart from scratch with Docker, run `make compose-down` and then `make compose-up` again.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+---
 
-**Use GitHub Codespaces**
+## Want to explore the code later?
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Architecture notes live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) if you decide to dive deeper. For casual use, you can ignore the code and focus on the steps above.

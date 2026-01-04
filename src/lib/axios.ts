@@ -143,22 +143,26 @@ class AxiosInstance {
     const requestHandlers: Interceptor<AxiosRequestConfig>[] = [];
     this.interceptors.request.forEach((handler) => requestHandlers.unshift(handler));
 
-    const responseHandlers: Interceptor<AxiosResponse>[] = [];
-    this.interceptors.response.forEach((handler) => responseHandlers.push(handler));
+    const responseHandlers: Array<Interceptor<AxiosResponse<T>>> = [];
+    this.interceptors.response.forEach((handler) =>
+      responseHandlers.push(handler as Interceptor<AxiosResponse<T>>)
+    );
 
-    let promise: Promise<any> = Promise.resolve(mergedConfig);
+    let requestPromise: Promise<AxiosRequestConfig> = Promise.resolve(mergedConfig);
 
     requestHandlers.forEach(({ fulfilled, rejected }) => {
-      promise = promise.then(fulfilled, rejected as RejectedFn);
+      requestPromise = requestPromise.then(fulfilled, rejected as RejectedFn);
     });
 
-    promise = promise.then((finalConfig) => this.dispatchRequest<T>(finalConfig));
+    let responsePromise: Promise<AxiosResponse<T>> = requestPromise.then((finalConfig) =>
+      this.dispatchRequest<T>(finalConfig)
+    );
 
     responseHandlers.forEach(({ fulfilled, rejected }) => {
-      promise = promise.then(fulfilled as FulfilledFn<any>, rejected as RejectedFn);
+      responsePromise = responsePromise.then(fulfilled, rejected as RejectedFn);
     });
 
-    return promise as Promise<AxiosResponse<T>>;
+    return responsePromise;
   }
 
   get<T = unknown>(url: string, config: AxiosRequestConfig = {}) {
