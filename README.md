@@ -1,87 +1,127 @@
-# Welcome to your Lovable project
+# CloudBee Robotics Learning Platform
 
-## Project info
+This repository contains everything you need to run the CloudBee learning platform: a web app for browsing courses, managing lessons and classwork, and experimenting with an AI tutor. The steps below are written for people with **zero coding experience**. If you can copy and paste commands, you can get the site running.
 
-**URL**: https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e
+---
 
-## How can I edit this code?
+## What you need before starting
 
-There are several ways of editing your application.
+- A computer with **internet access**.
+- A way to download the project: either **Git** (recommended) or the **"Download ZIP"** button on GitHub.
+- **Node.js 20+** and **npm 10+** (install from [nodejs.org](https://nodejs.org/) – choose the LTS option). These let you run the website.
+- **Python 3.11+** (already available on most systems) so the backend can start.
+- **Docker + Docker Compose** (optional) if you prefer a one-command setup.
 
-**Use Lovable**
+If you are unsure about any of these, follow the “Docker (easiest)” path below. It bundles everything for you.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e) and start prompting.
+---
 
-Changes made via Lovable will be committed automatically to this repo.
+## Download the project (only once)
 
-**Use your preferred IDE**
+1. Open a terminal (Command Prompt on Windows, Terminal on macOS/Linux).
+2. Choose one download method:
+   - **Git (recommended):**
+     ```sh
+     git clone https://github.com/your-org/mayur.git
+     cd mayur
+     ```
+   - **Download ZIP:** Click **Code → Download ZIP** on GitHub, unzip the file, then in the terminal run:
+     ```sh
+     cd path/to/unzipped/mayur
+     ```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+You only need to do this once. All later commands happen inside the `mayur` folder.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## Quick start (choose one path)
 
-Follow these steps:
+### Path A: Docker (easiest — one command after install)
+1. Install **Docker Desktop** from [docker.com](https://www.docker.com/products/docker-desktop/). Open it and wait until Docker says it is running.
+2. In your terminal, make sure you are inside the `mayur` folder:
+   ```sh
+   cd /path/to/mayur
+   ```
+   If you see files like `package.json` when you type `ls` (macOS/Linux) or `dir` (Windows), you are in the right place.
+3. Start everything (database, backend, and frontend) with one command:
+   ```sh
+   make compose-up
+   ```
+   - The first run downloads images, so it can take a few minutes.
+4. When logs show the backend and frontend are ready, open your browser at **http://localhost:5173**. You should see the CloudBee home page.
+5. When you’re done, stop all services (in the same terminal):
+   ```sh
+   make compose-down
+   ```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+### Path B: Manual setup (step-by-step, no Docker)
+1. **Confirm tools are installed** (these commands print versions):
+   ```sh
+   node -v
+   npm -v
+   python --version
+   ```
+   If any command fails, install the missing tool before continuing.
+2. **Install project dependencies** (inside the `mayur` folder):
+   ```sh
+   npm install                                    # downloads website libraries
+   cd backend && pip install -r requirements.txt   # downloads backend libraries
+   cd ..                                          # return to project root
+   ```
+3. **Create your settings files** by copying the templates (still in `mayur`):
+   ```sh
+   cp .env.example .env
+   cp backend/.env.example backend/.env
+   ```
+   - Leave the default values for a local test run. You do not need to edit them unless you have your own API keys.
+4. **Start the backend** (serves course data and uploads):
+   ```sh
+   cd backend
+   FLASK_APP=app flask run --host=0.0.0.0 --port=5000
+   ```
+   - Keep this terminal window open; closing it stops the backend.
+5. **Start the website** in a second terminal window:
+   ```sh
+   cd /path/to/mayur
+   npm run dev -- --host --port 5173
+   ```
+   - Wait for the message that Vite is running. This terminal also needs to stay open.
+6. Open your browser at **http://localhost:5173** to use the app. Refreshes happen automatically when files change.
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+---
 
-# Step 3: Install the necessary dependencies.
-npm i
+## Understanding the environment files (optional)
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+If you need to connect to external services, fill these values in the `.env` files you created:
 
-## Running with Docker Compose
+- **Frontend (`.env`):**
+  - `VITE_API_BASE_URL` — where the backend is reachable (default works for local setup).
+  - `VITE_RAZORPAY_KEY_ID` — Razorpay public key if you enable payments.
+  - `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` — keys for the AI tutor feature.
+- **Backend (`backend/.env`):**
+  - `DATABASE_URL`, `JWT_SECRET_KEY`, and Razorpay credentials. These stay on your machine.
 
-1. Duplicate `backend/.env.example` to `backend/.env` and adjust values as needed.
-2. Start all services together:
+You can leave these as-is for a local test drive; only adjust them when connecting to your own services.
 
-```sh
-make compose-up
-```
+---
 
-Service URLs:
+## Using the app
 
-- Frontend: http://localhost:5173
-- API: http://localhost:5000
+- **Instructor dashboard:** manage courses, lessons, classwork, and file uploads in one place.
+- **Course editor:** build or edit a course, attach lesson content, and link uploaded files.
+- **Uploads:** add images, PDFs, or other files; the app automatically reuses the file URLs inside lessons and classwork.
+- **AI tutor (Supabase):** if you provide Supabase keys, the tutor endpoint will be available for experiments.
 
-**Edit a file directly in GitHub**
+Everything happens in your browser—no coding required once the servers are running.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+---
 
-**Use GitHub Codespaces**
+## Troubleshooting
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+- If a command is not found, confirm you installed Node.js, Python, or Docker as listed above.
+- If ports 5000 or 5173 are busy, stop other apps using those ports or change the port numbers in the start commands.
+- To restart from scratch with Docker, run `make compose-down` and then `make compose-up` again.
 
-## What technologies are used for this project?
+---
 
-This project is built with:
+## Want to explore the code later?
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/c4444008-bb72-4608-a883-e9412cebae5e) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Architecture notes live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) if you decide to dive deeper. For casual use, you can ignore the code and focus on the steps above.
