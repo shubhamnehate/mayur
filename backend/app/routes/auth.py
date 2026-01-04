@@ -1,7 +1,7 @@
 from functools import wraps
 from typing import Callable, Iterable
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify
 from flask_jwt_extended import (
     create_access_token,
     get_jwt,
@@ -10,8 +10,14 @@ from flask_jwt_extended import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from ..models import ROLE_VALUES, User
 from ..db import db
+from ..models import ROLE_VALUES, User
+from ..security import (
+    ValidationError,
+    require_json,
+    sanitize_string,
+    validate_password,
+)
 
 bp = Blueprint("auth", __name__, url_prefix="/api")
 
@@ -50,59 +56,75 @@ def user_has_role(roles: Iterable[str]) -> bool:
     return bool(set(user_roles).intersection(set(roles)))
 
 
+def _admin_only_response():
+    return (
+        jsonify({"message": "Forbidden: admin role required"}),
+        403,
+    )
+
+
 @bp.route("/auth/register", methods=["POST"])
 def register():
-    payload = request.get_json(silent=True) or {}
-    name = (payload.get("name") or "").strip()
-    email = (payload.get("email") or "").strip().lower()
-    password = payload.get("password") or ""
-    role = payload.get("role") or ROLE_VALUES[0]
+    try:
+        payload = require_json()
+        name = sanitize_string(payload.get("name"), "name", required=True, max_length=120)
+        email = sanitize_string(payload.get("email"), "email", required=True, max_length=255).lower()
+        password = payload.get("password") or ""
+        role = payload.get("role") or ROLE_VALUES[0]
 
-    errors = {}
-    if not name:
-        errors["name"] = "Name is required."
-    if not email:
-        errors["email"] = "Email is required."
-    if not password:
-        errors["password"] = "Password is required."
-    if role not in ROLE_VALUES:
-        errors["role"] = f"Role must be one of {', '.join(ROLE_VALUES)}."
+        validate_password(password)
 
-    if errors:
-        return jsonify({"message": "Invalid input", "errors": errors}), 400
+        if role not in ROLE_VALUES:
+            raise ValidationError(
+                "Invalid input", {"role": f"Role must be one of {', '.join(ROLE_VALUES)}."}
+            )
 
-    existing_user = User.query.filter_by(email=email).first()
-    if existing_user:
-        return jsonify({"message": "Email already registered."}), 409
+        if role == "admin":
+            raise ValidationError(
+                "Invalid input",
+                {"role": "Admin accounts can only be created by an administrator."},
+            )
 
-    user = User(
-        name=name, email=email, password_hash=generate_password_hash(password), role=role
-    )
-    db.session.add(user)
-    db.session.commit()
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return jsonify({"message": "Email already registered."}), 409
 
-    return jsonify({"message": "User registered successfully", "user": serialize_user(user)}), 201
+        user = User(
+            name=name,
+            email=email,
+            password_hash=generate_password_hash(password),
+            role=role,
+        )
+        db.session.add(user)
+        db.session.commit()
+
+        return (
+            jsonify({"message": "User registered successfully", "user": serialize_user(user)}),
+            201,
+        )
+    except ValidationError as exc:  # pragma: no cover - safety net for prod readiness
+        return exc.to_response()
 
 
 @bp.route("/auth/login", methods=["POST"])
 def login():
-    payload = request.get_json(silent=True) or {}
-    email = (payload.get("email") or "").strip().lower()
-    password = payload.get("password") or ""
+    try:
+        payload = require_json()
+        email = sanitize_string(payload.get("email"), "email", required=True, max_length=255).lower()
+        password = payload.get("password") or ""
 
-    if not email or not password:
-        return (
-            jsonify({"message": "Email and password are required."}),
-            400,
-        )
+        if not password:
+            raise ValidationError("Invalid input", {"password": "Password is required."})
 
-    user = User.query.filter_by(email=email).first()
-    if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({"message": "Invalid credentials."}), 401
+        user = User.query.filter_by(email=email).first()
+        if not user or not check_password_hash(user.password_hash, password):
+            return jsonify({"message": "Invalid credentials."}), 401
 
-    claims = {"roles": [user.role], "user_id": user.id}
-    access_token = create_access_token(identity=user.id, additional_claims=claims)
-    return jsonify({"access_token": access_token, "user": serialize_user(user)})
+        claims = {"roles": [user.role], "user_id": user.id}
+        access_token = create_access_token(identity=user.id, additional_claims=claims)
+        return jsonify({"access_token": access_token, "user": serialize_user(user)})
+    except ValidationError as exc:  # pragma: no cover
+        return exc.to_response()
 
 
 @bp.route("/me", methods=["GET"])
@@ -115,3 +137,45 @@ def me():
 
     claims = get_jwt()
     return jsonify({"user": serialize_user(user), "claims": claims})
+
+
+@bp.route("/auth/admin/create-teacher", methods=["POST"])
+@jwt_required()
+def create_teacher():
+    if not user_has_role(["admin"]):
+        return _admin_only_response()
+
+    try:
+        payload = require_json()
+        name = sanitize_string(payload.get("name"), "name", required=True, max_length=120)
+        email = sanitize_string(payload.get("email"), "email", required=True, max_length=255).lower()
+        password = payload.get("password") or ""
+        validate_password(password)
+
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return jsonify({"message": "Email already registered."}), 409
+
+        user = User(
+            name=name,
+            email=email,
+            password_hash=generate_password_hash(password),
+            role="teacher",
+        )
+        db.session.add(user)
+        db.session.commit()
+
+        claims = {"roles": [user.role], "user_id": user.id}
+        access_token = create_access_token(identity=user.id, additional_claims=claims)
+        return (
+            jsonify(
+                {
+                    "message": "Teacher account created",
+                    "user": serialize_user(user),
+                    "access_token": access_token,
+                }
+            ),
+            201,
+        )
+    except ValidationError as exc:  # pragma: no cover
+        return exc.to_response()
