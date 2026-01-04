@@ -2,11 +2,12 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { client, clearStoredToken, getStoredToken, onUnauthorized, setAccessToken } from '@/api/client';
 import { isAxiosError } from '@/lib/axios';
 
-type AppRole = 'admin' | 'instructor' | 'student';
+type AppRole = 'admin' | 'instructor' | 'teacher' | 'student';
 
 interface ApiUser {
   id: string;
   email: string;
+  name?: string;
   full_name?: string | null;
   avatar_url?: string | null;
   roles?: AppRole[];
@@ -20,6 +21,7 @@ interface AuthContextType {
   loading: boolean;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signInWithGoogle: (credential: string, fullName?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   hasRole: (role: AppRole) => boolean;
 }
@@ -27,7 +29,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthResponse {
-  token: string;
+  access_token?: string;
+  token?: string;
   user: ApiUser;
   roles?: AppRole[];
 }
@@ -49,8 +52,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const hasRole = (role: AppRole) => roles.includes(role);
 
   const applyAuthResponse = (data: AuthResponse) => {
-    setAccessToken(data.token);
-    setTokenState(data.token);
+    const nextToken = data.token ?? data.access_token;
+    if (!nextToken) {
+      throw new Error('Authentication response did not include a token.');
+    }
+
+    setAccessToken(nextToken);
+    setTokenState(nextToken);
     setUser(data.user);
     setRoles(data.roles ?? data.user.roles ?? []);
   };
@@ -69,7 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data } = await client.post<AuthResponse>('/api/auth/register', {
         email,
         password,
-        fullName,
+        name: fullName,
       });
       applyAuthResponse(data);
       return { error: null };
@@ -88,6 +96,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { error: null };
     } catch (error) {
       return { error: toError(error, 'Login failed') };
+    }
+  };
+
+  const signInWithGoogle = async (credential: string, fullName?: string) => {
+    try {
+      const { data } = await client.post<AuthResponse>('/api/auth/google', {
+        id_token: credential,
+        name: fullName,
+      });
+      applyAuthResponse(data);
+      return { error: null };
+    } catch (error) {
+      return { error: toError(error, 'Google sign-in failed') };
     }
   };
 
@@ -137,6 +158,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loading,
       signUp,
       signIn,
+      signInWithGoogle,
       signOut,
       hasRole,
     }),

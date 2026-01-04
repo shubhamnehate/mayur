@@ -65,7 +65,7 @@ const App = () => (
             <Route
               path="/admin"
               element={
-                <ProtectedRoute roles={["admin", "instructor"]}>
+                <ProtectedRoute roles={["admin", "instructor", "teacher"]}>
                   <AdminPanel />
                 </ProtectedRoute>
               }
@@ -73,7 +73,7 @@ const App = () => (
             <Route
               path="/admin/course/:courseSlug"
               element={
-                <ProtectedRoute roles={["admin", "instructor"]}>
+                <ProtectedRoute roles={["admin", "instructor", "teacher"]}>
                   <AdminCourseEditor />
                 </ProtectedRoute>
               }
@@ -81,7 +81,7 @@ const App = () => (
             <Route
               path="/instructor"
               element={
-                <ProtectedRoute roles={["instructor", "admin"]}>
+                <ProtectedRoute roles={["instructor", "teacher", "admin"]}>
                   <InstructorDashboard />
                 </ProtectedRoute>
               }
@@ -89,7 +89,7 @@ const App = () => (
             <Route
               path="/instructor/courses"
               element={
-                <ProtectedRoute roles={["instructor", "admin"]}>
+                <ProtectedRoute roles={["instructor", "teacher", "admin"]}>
                   <InstructorCourses />
                 </ProtectedRoute>
               }
@@ -97,7 +97,7 @@ const App = () => (
             <Route
               path="/instructor/course/:courseSlug"
               element={
-                <ProtectedRoute roles={["instructor", "admin"]}>
+                <ProtectedRoute roles={["instructor", "teacher", "admin"]}>
                   <CourseEditor />
                 </ProtectedRoute>
               }
@@ -105,7 +105,7 @@ const App = () => (
             <Route
               path="/instructor/lessons"
               element={
-                <ProtectedRoute roles={["instructor", "admin"]}>
+                <ProtectedRoute roles={["instructor", "teacher", "admin"]}>
                   <LessonsManager />
                 </ProtectedRoute>
               }
@@ -113,7 +113,7 @@ const App = () => (
             <Route
               path="/instructor/classwork"
               element={
-                <ProtectedRoute roles={["instructor", "admin"]}>
+                <ProtectedRoute roles={["instructor", "teacher", "admin"]}>
                   <ClassworkManager />
                 </ProtectedRoute>
               }
@@ -121,7 +121,7 @@ const App = () => (
             <Route
               path="/instructor/uploads"
               element={
-                <ProtectedRoute roles={["instructor", "admin"]}>
+                <ProtectedRoute roles={["instructor", "teacher", "admin"]}>
                   <Uploads />
                 </ProtectedRoute>
               }
@@ -129,7 +129,7 @@ const App = () => (
             <Route
               path="/learn/:courseSlug"
               element={
-                <ProtectedRoute roles={["student", "instructor", "admin"]}>
+                <ProtectedRoute roles={["student", "teacher", "instructor", "admin"]}>
                   <LearnCourse />
                 </ProtectedRoute>
               }

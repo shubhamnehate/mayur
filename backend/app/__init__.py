@@ -17,14 +17,21 @@ def create_app() -> Flask:
     load_dotenv(env_path)
 
     app = Flask(__name__)
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-        "DATABASE_URL", "sqlite:///app.db"
+    app.config["SQLALCHEMY_DATABASE_URI"] = (
+        os.getenv("DATABASE_URL")
+        or os.getenv("BACKEND_DATABASE_URL")
+        or "sqlite:///app.db"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET", "change-me")
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(
-        seconds=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES", "3600"))
+    app.config["JWT_SECRET_KEY"] = (
+        os.getenv("JWT_SECRET") or os.getenv("BACKEND_JWT_SECRET") or "change-me"
     )
+    expires_seconds = (
+        os.getenv("JWT_ACCESS_TOKEN_EXPIRES")
+        or os.getenv("BACKEND_JWT_EXPIRES")
+        or "3600"
+    )
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(seconds=int(expires_seconds))
 
     init_db(app)
     jwt.init_app(app)

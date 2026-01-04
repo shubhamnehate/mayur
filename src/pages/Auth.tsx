@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -13,12 +13,32 @@ import { z } from 'zod';
 const emailSchema = z.string().email('Please enter a valid email address');
 const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
 
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: { client_id: string; callback: (response: { credential?: string }) => void }) => void;
+          renderButton: (
+            element: HTMLElement,
+            options?: { theme?: string; size?: string; type?: string }
+          ) => void;
+        };
+      };
+    };
+  }
+}
+
 const Auth = () => {
-  const { user, signIn, signUp } = useAuth();
+  const { user, signIn, signUp, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  const [hasRenderedGoogleButton, setHasRenderedGoogleButton] = useState(false);
+
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -111,6 +131,78 @@ const Auth = () => {
     }
   };
 
+  const handleGoogleCredential = useCallback(async (credential: string) => {
+    setIsGoogleLoading(true);
+    const { error } = await signInWithGoogle(credential, signupName || undefined);
+    setIsGoogleLoading(false);
+
+    if (error) {
+      toast({
+        title: 'Google sign-in failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    toast({
+      title: 'Signed in with Google',
+      description: 'Welcome back!',
+    });
+    navigate('/dashboard');
+  }, [navigate, signInWithGoogle, signupName]);
+
+  useEffect(() => {
+    if (!googleClientId) return;
+
+    const scriptSrc = 'https://accounts.google.com/gsi/client';
+    const existingScript = document.querySelector<HTMLScriptElement>(`script[src="${scriptSrc}"]`);
+
+    const renderGoogleButton = () => {
+      if (hasRenderedGoogleButton || !window.google || !googleButtonRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: ({ credential }) => {
+          if (credential) {
+            handleGoogleCredential(credential);
+          }
+        },
+      });
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        type: 'standard',
+      });
+      setHasRenderedGoogleButton(true);
+    };
+
+    if (existingScript) {
+      if (existingScript.dataset.loaded === 'true') {
+        renderGoogleButton();
+      } else {
+        existingScript.addEventListener('load', () => {
+          existingScript.dataset.loaded = 'true';
+          renderGoogleButton();
+        });
+      }
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = scriptSrc;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      renderGoogleButton();
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      script.onload = null;
+    };
+  }, [googleClientId, handleGoogleCredential, hasRenderedGoogleButton]);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted/50 to-background p-4">
       <div className="w-full max-w-md">
@@ -174,7 +266,7 @@ const Auth = () => {
                   </div>
                 </CardContent>
                 <CardFooter>
-                  <Button type="submit" className="w-full gradient-primary" disabled={isLoading}>
+                  <Button type="submit" className="w-full gradient-primary" disabled={isLoading || isGoogleLoading}>
                     {isLoading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -185,6 +277,28 @@ const Auth = () => {
                     )}
                   </Button>
                 </CardFooter>
+                {googleClientId ? (
+                  <div className="px-6 pb-6">
+                    <div className="relative flex items-center py-4">
+                      <div className="flex-grow border-t border-muted" />
+                      <span className="mx-3 text-xs uppercase tracking-wide text-muted-foreground">or continue with</span>
+                      <div className="flex-grow border-t border-muted" />
+                    </div>
+                    <div className="flex justify-center">
+                      <div ref={googleButtonRef} aria-live="polite" />
+                    </div>
+                    {isGoogleLoading && (
+                      <div className="mt-3 flex items-center justify-center text-sm text-muted-foreground">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Finishing Google sign-in...
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="px-6 pb-6 text-center text-xs text-muted-foreground">
+                    Google sign-in is disabled because VITE_GOOGLE_CLIENT_ID is not set.
+                  </p>
+                )}
               </form>
             </TabsContent>
 
