@@ -125,3 +125,6 @@ Everything happens in your browser—no coding required once the servers are run
 ## Want to explore the code later?
 
 Architecture notes live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) if you decide to dive deeper. For casual use, you can ignore the code and focus on the steps above.
+
+## Tools
+This project is a part of Vibe coding concept project with codex
